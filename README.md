@@ -44,7 +44,6 @@ swift test
 
 - `Sources/FocusBar/Domain.swift`: local-date, navigation, and deterministic list rules
 - `Sources/FocusBar/CalendarState.swift`: system calendar lifecycle notifications and badge refresh
-- `Sources/FocusBar/QuickAddTextField.swift`: native AppKit text entry with marked-text-aware Return handling
 - `Sources/FocusBar/Models.swift`: SwiftData task and recurrence occurrence records
 - `Sources/FocusBar/TaskStore.swift`: local persistence and task commands
 - `Sources/FocusBar/TodayPanel.swift`: menu bar list, date selection, task editing

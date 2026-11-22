@@ -7,9 +7,11 @@ struct TodayPanel: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(TaskStore.self) private var store
   @Environment(CalendarState.self) private var calendarState
+  @FocusState private var quickAddFocused: Bool
   @State private var navigation = DateNavigationState()
   @State private var editor: VisibleTask?
   @State private var quickAddActive = false
+  @State private var isSubmittingQuickAdd = false
   @State private var quickDraft = TaskDraft(day: LocalDay(.now))
   @State private var quickDetailsExpanded = false
   @State private var quickAddFailed = false
@@ -43,6 +45,7 @@ struct TodayPanel: View {
 
   private func beginQuickAdd() {
     quickDraft = TaskDraft(day: selected)
+    isSubmittingQuickAdd = false
     quickDetailsExpanded = false
     quickAddFailed = false
     quickAddActive = true
@@ -63,6 +66,7 @@ struct TodayPanel: View {
 
   private func cancelQuickAdd() {
     quickDraft = TaskDraft(day: selected)
+    isSubmittingQuickAdd = false
     quickDetailsExpanded = false
     quickAddFailed = false
     quickAddActive = false
@@ -113,13 +117,22 @@ struct TodayPanel: View {
         VStack(alignment: .leading, spacing: 5) {
           HStack(spacing: 8) {
             Image(systemName: "plus.circle.fill").foregroundStyle(.secondary)
-            QuickAddTextField(
-              text: quickAddText,
-              placeholder: String(localized: "Task title"),
-              onSubmit: submitQuickAdd,
-              onCancel: cancelQuickAdd
-            )
-            .frame(maxWidth: .infinity, minHeight: 28)
+            TextField(String(localized: "Task title"), text: quickAddText)
+              .textFieldStyle(.plain).font(.body).focused($quickAddFocused)
+              .onSubmit {
+                let hasMarkedText =
+                  (NSApp.keyWindow?.firstResponder as? NSTextView)?.hasMarkedText() ?? false
+                guard
+                  canSubmitQuickAdd(
+                    title: quickDraft.title, hasMarkedText: hasMarkedText,
+                    isSubmitting: isSubmittingQuickAdd)
+                else { return }
+                isSubmittingQuickAdd = true
+                if !submitQuickAdd(quickDraft.title) { isSubmittingQuickAdd = false }
+              }
+              .onExitCommand(perform: cancelQuickAdd)
+              .onAppear { quickAddFocused = true }
+              .frame(maxWidth: .infinity, minHeight: 28)
             Button(String(localized: "Cancel"), systemImage: "xmark") { cancelQuickAdd() }
               .labelStyle(.iconOnly).buttonStyle(.plain).help(String(localized: "Cancel"))
           }

@@ -15,7 +15,7 @@ struct TodayPanel: View {
   @State private var quickDraft = TaskDraft(day: LocalDay(.now))
   @State private var quickDetailsExpanded = false
   @State private var quickAddFailed = false
-  @State private var maxPanelHeight: CGFloat = 600
+  @State private var panelHeight: CGFloat = 520
   @State private var deleting: VisibleTask?
   @State private var showDeleteConfirmation = false
   @State private var deleteSeries = false
@@ -111,7 +111,7 @@ struct TodayPanel: View {
         .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
       }
       .scrollIndicators(.visible)
-      .frame(maxHeight: max(80, maxPanelHeight - quickAddHeightReservation))
+      .frame(maxHeight: max(80, panelHeight - quickAddHeightReservation))
       Divider()
       if quickAddActive {
         VStack(alignment: .leading, spacing: 5) {
@@ -218,14 +218,13 @@ struct TodayPanel: View {
         }.padding(.horizontal, 16).padding(.vertical, 12)
       }
     }
-    .frame(maxHeight: maxPanelHeight)
-    .frame(width: 360)
+    .frame(width: 360, height: panelHeight, alignment: .top)
     .background(.regularMaterial)
     .onAppear {
       let screenHeight =
         NSApp.keyWindow?.screen?.visibleFrame.height
         ?? NSScreen.screens.first?.visibleFrame.height ?? 800
-      maxPanelHeight = min(760, screenHeight * 0.75)
+      panelHeight = min(520, max(360, screenHeight - 100))
       calendarState.refresh()
     }
     .sheet(item: $editor) { item in

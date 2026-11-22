@@ -11,6 +11,7 @@ title: String                       // 必填，trim 后非空
 notes: String?                      // 可选
 scheduledDate: LocalDate            // YYYY-MM-DD 语义；默认当前所查看日期
 scheduledTime: LocalTime?           // HH:mm，可空
+dueDate: LocalDate?                 // 可选 DDL；默认 nil，与计划日期独立
 status: open | completed            // 用户明确勾选
 createdAt: Date
 updatedAt: Date
@@ -37,7 +38,7 @@ createdAt: Date
 updatedAt: Date
 ```
 
-重复规则生成按日 **occurrence**，通过 `seriesID + localDate` 唯一键避免多次刷新重复。完成/跳过状态按 occurrence 单独保存。V1 默认编辑当前实例；若提供“编辑此系列”必须明确确认作用范围。
+重复规则生成按日 **occurrence**，通过 `seriesID + localDate` 唯一键避免多次刷新重复。完成/跳过状态与可选 DDL 按 occurrence 单独保存。V1 默认编辑当前实例；若提供“编辑此系列”必须明确确认作用范围。
 
 ### CompletionRecord / OccurrenceOverride
 对重复事项记录 `seriesID, occurrenceDate, completedAt?, hidden?, overrideTitle?, overrideTime?`；不因次日进入新日将昨天状态沿用。生成可视 occurrence 可以采用按需虚拟展开 + 独立覆盖记录，避免一次创建无限任务。

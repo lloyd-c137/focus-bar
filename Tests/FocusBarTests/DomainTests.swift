@@ -99,7 +99,8 @@ final class DomainTests: XCTestCase {
       _ id: String, _ minute: Int?, _ order: Int, day: LocalDay? = nil, overdue: Bool = false
     ) -> VisibleTask {
       VisibleTask(
-        id: id, title: id, notes: "", day: day ?? self.day("2026-11-22"), minuteOfDay: minute,
+        id: id, title: id, notes: "", day: day ?? self.day("2026-11-22"), dueDay: nil,
+        minuteOfDay: minute,
         completed: false, completedAt: nil, overdue: overdue, isRecurring: false, sourceID: UUID(),
         sortOrder: order,
         occurrenceDay: nil, movedFromDay: nil)
@@ -115,6 +116,55 @@ final class DomainTests: XCTestCase {
 }
 
 @MainActor final class TaskStoreTests: XCTestCase {
+  func testDeadlineIsOptionalAndCanBeSetAndClearedWhenEditing() throws {
+    let schema = Schema([TaskRecord.self, OccurrenceRecord.self])
+    let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+    let container = try ModelContainer(for: schema, configurations: [configuration])
+    let store = TaskStore(context: container.mainContext)
+    let scheduled = LocalDay(.now)
+    let due = scheduled.addingDays(10)
+
+    XCTAssertTrue(store.save(TaskDraft(title: "Long-term", day: scheduled, minuteOfDay: nil)))
+    var item = try XCTUnwrap(store.tasks(on: scheduled, today: scheduled).first)
+    XCTAssertNil(item.dueDay)
+
+    XCTAssertTrue(
+      store.save(
+        TaskDraft(title: item.title, day: scheduled, minuteOfDay: nil, dueDay: due), editing: item))
+    item = try XCTUnwrap(store.tasks(on: scheduled, today: scheduled).first)
+    XCTAssertEqual(item.day, scheduled)
+    XCTAssertEqual(item.dueDay, due)
+
+    XCTAssertTrue(
+      store.save(TaskDraft(title: item.title, day: scheduled, minuteOfDay: nil), editing: item))
+    XCTAssertNil(store.tasks(on: scheduled, today: scheduled).first?.dueDay)
+  }
+
+  func testRecurringDeadlineBelongsOnlyToTheCreatedOccurrence() throws {
+    let schema = Schema([TaskRecord.self, OccurrenceRecord.self])
+    let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+    let container = try ModelContainer(for: schema, configurations: [configuration])
+    let store = TaskStore(context: container.mainContext)
+    let today = LocalDay(.now)
+    let due = today.addingDays(2)
+
+    XCTAssertTrue(
+      store.save(
+        TaskDraft(title: "Read", day: today, minuteOfDay: nil, dueDay: due, frequency: .daily)))
+    var occurrence = try XCTUnwrap(store.tasks(on: today, today: today).first)
+    XCTAssertEqual(occurrence.dueDay, due)
+    XCTAssertNil(store.tasks(on: today.addingDays(1), today: today).first?.dueDay)
+
+    let updatedDue = today.addingDays(4)
+    XCTAssertTrue(
+      store.save(
+        TaskDraft(title: occurrence.title, day: today, minuteOfDay: nil, dueDay: updatedDue),
+        editing: occurrence))
+    occurrence = try XCTUnwrap(store.tasks(on: today, today: today).first)
+    XCTAssertEqual(occurrence.dueDay, updatedDue)
+    XCTAssertNil(store.tasks(on: today.addingDays(1), today: today).first?.dueDay)
+  }
+
   func testDailyOccurrenceCompletionIsIndependentByDate() throws {
     let schema = Schema([TaskRecord.self, OccurrenceRecord.self])
     let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
@@ -318,7 +368,10 @@ final class DomainTests: XCTestCase {
       let container = try ModelContainer(for: schema, configurations: [config])
       let store = TaskStore(context: container.mainContext)
       XCTAssertTrue(
-        store.save(TaskDraft(title: "Persist me", day: LocalDay(.now), minuteOfDay: nil)))
+        store.save(
+          TaskDraft(
+            title: "Persist me", day: LocalDay(.now), minuteOfDay: nil,
+            dueDay: LocalDay(.now).addingDays(7))))
       let task = try XCTUnwrap(store.tasks(on: LocalDay(.now), today: LocalDay(.now)).first)
       store.toggle(task)
     }
@@ -328,6 +381,7 @@ final class DomainTests: XCTestCase {
       let records = try container.mainContext.fetch(FetchDescriptor<TaskRecord>())
       XCTAssertEqual(records.map(\.title), ["Persist me"])
       XCTAssertTrue(records.first?.completed == true)
+      XCTAssertEqual(records.first?.dueDay, LocalDay(.now).addingDays(7))
     }
   }
 

@@ -6,6 +6,7 @@ import SwiftData
   var title: String
   var notes: String
   var dayKey: String
+  var dueDayKey: String?
   var minuteOfDay: Int?
   var sortOrder: Int
   var frequency: String
@@ -17,12 +18,14 @@ import SwiftData
 
   init(
     title: String, notes: String = "", day: LocalDay, minuteOfDay: Int? = nil, sortOrder: Int = 0,
-    frequency: TaskFrequency = .never, weekdays: Set<Int> = [], id: UUID = UUID()
+    frequency: TaskFrequency = .never, weekdays: Set<Int> = [], dueDay: LocalDay? = nil,
+    id: UUID = UUID()
   ) {
     self.id = id
     self.title = title
     self.notes = notes
     self.dayKey = day.key
+    self.dueDayKey = dueDay?.key
     self.minuteOfDay = minuteOfDay
     self.sortOrder = sortOrder
     self.frequency = frequency.rawValue
@@ -33,6 +36,7 @@ import SwiftData
     self.deleted = false
   }
   var day: LocalDay { LocalDay(key: dayKey) }
+  var dueDay: LocalDay? { dueDayKey.map(LocalDay.init(key:)) }
   var recurrence: TaskFrequency { TaskFrequency(rawValue: frequency) ?? .never }
   var weekdaySet: Set<Int> { Set(weekdays.split(separator: ",").compactMap { Int($0) }) }
 }
@@ -43,12 +47,15 @@ import SwiftData
   var dayKey: String
   var completed: Bool
   var hidden: Bool
+  var dueDayKey: String?
+  var hasDueDayOverride = false
   var titleOverride: String?
   var notesOverride: String?
   var minuteOverride: Int?
   var hasMinuteOverride: Bool
   var rescheduledDayKey: String?
   var completedAt: Date?
+  var dueDay: LocalDay? { dueDayKey.map(LocalDay.init(key:)) }
   init(seriesID: UUID, day: LocalDay) {
     self.seriesID = seriesID
     self.dayKey = day.key

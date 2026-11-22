@@ -33,11 +33,12 @@ swift test
 - Today, Tomorrow, and arbitrary local calendar date navigation
 - Create, edit, complete/reopen, reschedule, and delete tasks
 - Optional local time and notes; stable ordering for anytime items
+- Optional deadline date (unset by default); recurring deadlines are stored per occurrence
 - Daily and weekly recurrence with per-day completion and exception records
 - Overdue one-time tasks remain on their original date
-- Inline Quick Add defaults to the viewed date; optional date, time, recurrence, and notes are under Details
+- Inline Quick Add defaults to the viewed date; optional date, deadline, time, recurrence, and notes are under Details
 - Today follows local-day changes and refreshes after wake, clock, and time-zone notifications
-- Optional menu bar count, completed-task visibility, and login item setting
+- Optional menu bar count, completed-task visibility, and login item setting; Settings opens via the native Settings scene
 - English and Simplified Chinese UI strings
 
 ## Project layout
@@ -48,6 +49,6 @@ swift test
 - `Sources/FocusBar/TaskStore.swift`: local persistence and task commands
 - `Sources/FocusBar/TodayPanel.swift`: menu bar list, date selection, task editing
 - `Sources/FocusBar/SettingsView.swift`: local preferences and login item
-- `Tests/FocusBarTests`: date, recurrence, ordering, and persistence tests (19 tests)
+- `Tests/FocusBarTests`: date, recurrence, deadline, ordering, and persistence tests (21 tests)
 
 Data remains in the app's local SwiftData store. There is no import/export or migration UI in this first implementation.

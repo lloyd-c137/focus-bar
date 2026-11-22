@@ -13,6 +13,9 @@
 "Cancel" = "Cancel";
 "Details" = "Details";
 "Date" = "Date";
+"Deadline" = "Deadline";
+"Set a deadline" = "Set a deadline";
+"Due %@" = "Due %@";
 "Time" = "Time";
 "Notes" = "Notes";
 "Repeat" = "Repeat";

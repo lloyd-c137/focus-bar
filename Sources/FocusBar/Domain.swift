@@ -43,6 +43,7 @@ struct TaskDraft {
   var notes = ""
   var day: LocalDay
   var minuteOfDay: Int?
+  var dueDay: LocalDay? = nil
   var frequency: TaskFrequency = .never
 }
 
@@ -51,6 +52,7 @@ struct VisibleTask: Identifiable {
   let title: String
   let notes: String
   let day: LocalDay
+  let dueDay: LocalDay?
   let minuteOfDay: Int?
   let completed: Bool
   let completedAt: Date?

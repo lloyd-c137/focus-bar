@@ -5,6 +5,7 @@ import SwiftUI
 struct TodayPanel: View {
   @AppStorage("showCompleted") private var showCompleted = true
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.openSettings) private var openSettings
   @Environment(TaskStore.self) private var store
   @Environment(CalendarState.self) private var calendarState
   @FocusState private var quickAddFocused: Bool
@@ -43,6 +44,8 @@ struct TodayPanel: View {
       ?? quickDraft.day.date
   }
 
+  private var quickDueDate: Date { quickDraft.dueDay?.date ?? quickDraft.day.date }
+
   private func beginQuickAdd() {
     quickDraft = TaskDraft(day: selected)
     isSubmittingQuickAdd = false
@@ -70,6 +73,11 @@ struct TodayPanel: View {
     quickDetailsExpanded = false
     quickAddFailed = false
     quickAddActive = false
+  }
+
+  private func showSettings() {
+    NSApp.activate(ignoringOtherApps: true)
+    openSettings()
   }
 
   var body: some View {
@@ -148,6 +156,25 @@ struct TodayPanel: View {
                 ).labelsHidden()
               }
               GridRow {
+                Text(String(localized: "Deadline"))
+                HStack(spacing: 8) {
+                  Toggle(
+                    String(localized: "Set a deadline"),
+                    isOn: Binding(
+                      get: { quickDraft.dueDay != nil },
+                      set: { quickDraft.dueDay = $0 ? (quickDraft.dueDay ?? quickDraft.day) : nil }
+                    ))
+                  if quickDraft.dueDay != nil {
+                    DatePicker(
+                      String(localized: "Deadline"),
+                      selection: Binding(
+                        get: { quickDueDate }, set: { quickDraft.dueDay = LocalDay($0) }),
+                      displayedComponents: .date
+                    ).labelsHidden()
+                  }
+                }
+              }
+              GridRow {
                 Text(String(localized: "Time"))
                 HStack(spacing: 8) {
                   Toggle(
@@ -205,9 +232,14 @@ struct TodayPanel: View {
           .buttonStyle(.plain).font(.body.weight(.medium))
           .keyboardShortcut("n", modifiers: .command)
           Spacer()
-          SettingsLink { Image(systemName: "gearshape") }
-            .labelStyle(.iconOnly).buttonStyle(.plain).help(String(localized: "Settings…"))
+          Button(action: showSettings) {
+            Image(systemName: "gearshape")
+              .frame(width: 30, height: 30).contentShape(Rectangle())
+          }
+          .buttonStyle(.plain).help(String(localized: "Settings…"))
           Menu {
+            Button(String(localized: "Settings…"), systemImage: "gearshape", action: showSettings)
+            Divider()
             Button(String(localized: "Quit Focus Bar"), systemImage: "power") {
               NSApp.terminate(nil)
             }
@@ -376,6 +408,13 @@ private struct TaskRow: View {
           Text(item.day.date.formatted(date: .abbreviated, time: .omitted)).font(.caption2)
             .foregroundStyle(.secondary)
         }
+        if let dueDay = item.dueDay {
+          Text(
+            String(
+              format: String(localized: "Due %@"),
+              dueDay.date.formatted(date: .abbreviated, time: .omitted))
+          ).font(.caption2).foregroundStyle(.secondary)
+        }
         if let movedFrom = item.movedFromDay {
           Text(
             String(
@@ -411,7 +450,7 @@ private struct TaskEditor: View {
     _draft = State(
       initialValue: TaskDraft(
         title: item?.title ?? "", notes: item?.notes ?? "", day: item?.day ?? day,
-        minuteOfDay: item?.minuteOfDay, frequency: .never))
+        minuteOfDay: item?.minuteOfDay, dueDay: item?.dueDay, frequency: .never))
   }
 
   var body: some View {
@@ -431,6 +470,26 @@ private struct TaskEditor: View {
               selection: Binding(get: { draft.day.date }, set: { draft.day = LocalDay($0) }),
               displayedComponents: .date
             ).labelsHidden()
+          }
+          GridRow {
+            Text(String(localized: "Deadline"))
+            HStack(spacing: 8) {
+              Toggle(
+                String(localized: "Set a deadline"),
+                isOn: Binding(
+                  get: { draft.dueDay != nil },
+                  set: { draft.dueDay = $0 ? (draft.dueDay ?? draft.day) : nil }
+                ))
+              if draft.dueDay != nil {
+                DatePicker(
+                  String(localized: "Deadline"),
+                  selection: Binding(
+                    get: { draft.dueDay?.date ?? draft.day.date },
+                    set: { draft.dueDay = LocalDay($0) }),
+                  displayedComponents: .date
+                ).labelsHidden()
+              }
+            }
           }
           GridRow {
             Text(String(localized: "Time"))

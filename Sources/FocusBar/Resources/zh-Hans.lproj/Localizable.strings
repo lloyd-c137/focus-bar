@@ -13,6 +13,9 @@
 "Cancel" = "取消";
 "Details" = "详细信息";
 "Date" = "日期";
+"Deadline" = "截止日期";
+"Set a deadline" = "设置截止日期";
+"Due %@" = "截止：%@";
 "Time" = "时间";
 "Notes" = "备注";
 "Repeat" = "重复";

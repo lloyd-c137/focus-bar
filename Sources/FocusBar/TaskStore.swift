@@ -44,6 +44,7 @@ import SwiftUI
             result.append(
               .init(
                 id: task.id.uuidString, title: task.title, notes: task.notes, day: task.day,
+                dueDay: task.dueDay,
                 minuteOfDay: task.minuteOfDay, completed: task.completed,
                 completedAt: task.completedAt,
                 overdue: isOverdue,
@@ -63,6 +64,7 @@ import SwiftUI
               .init(
                 id: key, title: occurrence?.titleOverride ?? task.title,
                 notes: occurrence?.notesOverride ?? task.notes, day: selected,
+                dueDay: occurrence?.hasDueDayOverride == true ? occurrence?.dueDay : nil,
                 minuteOfDay: occurrence?.hasMinuteOverride == true
                   ? occurrence?.minuteOverride : task.minuteOfDay,
                 completed: occurrence?.completed ?? false, completedAt: occurrence?.completedAt,
@@ -82,6 +84,7 @@ import SwiftUI
           .init(
             id: occurrence.key, title: occurrence.titleOverride ?? task.title,
             notes: occurrence.notesOverride ?? task.notes, day: selected,
+            dueDay: occurrence.hasDueDayOverride ? occurrence.dueDay : nil,
             minuteOfDay: occurrence.hasMinuteOverride
               ? occurrence.minuteOverride : task.minuteOfDay,
             completed: occurrence.completed, completedAt: occurrence.completedAt, overdue: false,
@@ -107,21 +110,31 @@ import SwiftUI
           record.notesOverride = draft.notes
           record.minuteOverride = draft.minuteOfDay
           record.hasMinuteOverride = true
+          record.dueDayKey = draft.dueDay?.key
+          record.hasDueDayOverride = true
           record.rescheduledDayKey = draft.day == editing.occurrenceSourceDay ? nil : draft.day.key
         } else if let task = try task(id: editing.sourceID) {
           task.title = title
           task.notes = draft.notes
           task.dayKey = draft.day.key
+          task.dueDayKey = draft.dueDay?.key
           task.minuteOfDay = draft.minuteOfDay
         }
       } else {
         let count = try context.fetchCount(FetchDescriptor<TaskRecord>())
-        context.insert(
-          TaskRecord(
-            title: title, notes: draft.notes, day: draft.day, minuteOfDay: draft.minuteOfDay,
-            sortOrder: count, frequency: draft.frequency,
-            weekdays: draft.frequency == .weekly
-              ? [Calendar.current.component(.weekday, from: draft.day.date)] : []))
+        let newTask = TaskRecord(
+          title: title, notes: draft.notes, day: draft.day, minuteOfDay: draft.minuteOfDay,
+          sortOrder: count, frequency: draft.frequency,
+          weekdays: draft.frequency == .weekly
+            ? [Calendar.current.component(.weekday, from: draft.day.date)] : [],
+          dueDay: draft.frequency == .never ? draft.dueDay : nil)
+        context.insert(newTask)
+        if draft.frequency != .never, let dueDay = draft.dueDay {
+          let occurrence = OccurrenceRecord(seriesID: newTask.id, day: draft.day)
+          occurrence.dueDayKey = dueDay.key
+          occurrence.hasDueDayOverride = true
+          context.insert(occurrence)
+        }
       }
       try context.save()
       error = nil

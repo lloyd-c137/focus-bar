@@ -15,6 +15,9 @@
 "Date" = "Date";
 "Deadline" = "Deadline";
 "Set a deadline" = "Set a deadline";
+"No deadline" = "No deadline";
+"Expanded" = "Expanded";
+"Collapsed" = "Collapsed";
 "Due %@" = "Due %@";
 "Time" = "Time";
 "Notes" = "Notes";

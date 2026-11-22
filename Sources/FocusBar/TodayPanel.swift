@@ -37,15 +37,6 @@ struct TodayPanel: View {
       })
   }
 
-  private var quickTimeDate: Date {
-    let minute = quickDraft.minuteOfDay ?? 9 * 60
-    return Calendar.current.date(
-      bySettingHour: minute / 60, minute: minute % 60, second: 0, of: quickDraft.day.date)
-      ?? quickDraft.day.date
-  }
-
-  private var quickDueDate: Date { quickDraft.dueDay?.date ?? quickDraft.day.date }
-
   private func beginQuickAdd() {
     quickDraft = TaskDraft(day: selected)
     isSubmittingQuickAdd = false
@@ -144,78 +135,9 @@ struct TodayPanel: View {
             Button(String(localized: "Cancel"), systemImage: "xmark") { cancelQuickAdd() }
               .labelStyle(.iconOnly).buttonStyle(.plain).help(String(localized: "Cancel"))
           }
-          DisclosureGroup(String(localized: "Details"), isExpanded: $quickDetailsExpanded) {
-            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-              GridRow {
-                Text(String(localized: "Date"))
-                DatePicker(
-                  String(localized: "Date"),
-                  selection: Binding(
-                    get: { quickDraft.day.date }, set: { quickDraft.day = LocalDay($0) }),
-                  displayedComponents: .date
-                ).labelsHidden()
-              }
-              GridRow {
-                Text(String(localized: "Deadline"))
-                HStack(spacing: 8) {
-                  Toggle(
-                    String(localized: "Set a deadline"),
-                    isOn: Binding(
-                      get: { quickDraft.dueDay != nil },
-                      set: { quickDraft.dueDay = $0 ? (quickDraft.dueDay ?? quickDraft.day) : nil }
-                    ))
-                  if quickDraft.dueDay != nil {
-                    DatePicker(
-                      String(localized: "Deadline"),
-                      selection: Binding(
-                        get: { quickDueDate }, set: { quickDraft.dueDay = LocalDay($0) }),
-                      displayedComponents: .date
-                    ).labelsHidden()
-                  }
-                }
-              }
-              GridRow {
-                Text(String(localized: "Time"))
-                HStack(spacing: 8) {
-                  Toggle(
-                    String(localized: "Set a time"),
-                    isOn: Binding(
-                      get: { quickDraft.minuteOfDay != nil },
-                      set: {
-                        quickDraft.minuteOfDay = $0 ? (quickDraft.minuteOfDay ?? 9 * 60) : nil
-                      }
-                    ))
-                  if quickDraft.minuteOfDay != nil {
-                    DatePicker(
-                      String(localized: "Time"),
-                      selection: Binding(
-                        get: { quickTimeDate },
-                        set: {
-                          let components = Calendar.current.dateComponents(
-                            [.hour, .minute], from: $0)
-                          quickDraft.minuteOfDay =
-                            (components.hour ?? 9) * 60 + (components.minute ?? 0)
-                        }),
-                      displayedComponents: .hourAndMinute
-                    ).labelsHidden()
-                  }
-                }
-              }
-              GridRow {
-                Text(String(localized: "Repeat"))
-                Picker(String(localized: "Repeat"), selection: $quickDraft.frequency) {
-                  ForEach(TaskFrequency.allCases) { Text($0.label).tag($0) }
-                }.labelsHidden()
-              }
-              GridRow {
-                Text(String(localized: "Notes"))
-                TextField(String(localized: "Notes"), text: $quickDraft.notes, axis: .vertical)
-                  .lineLimit(1...3).textFieldStyle(.roundedBorder)
-              }
-            }
-            .font(.callout).padding(.top, 6)
+          TaskDetailsDisclosure(isExpanded: $quickDetailsExpanded) {
+            TaskDetailsFields(draft: $quickDraft, includesRepeat: true)
           }
-          .font(.caption)
           if quickAddFailed {
             Text(String(localized: "Unable to save. Try again."))
               .font(.caption).foregroundStyle(.red).padding(.leading, 30)
@@ -440,6 +362,7 @@ private struct TaskEditor: View {
   @Environment(\.dismiss) private var dismiss
   @FocusState private var titleFocused: Bool
   @State private var draft: TaskDraft
+  @State private var detailsExpanded = false
   @State private var saveFailed = false
   private let item: VisibleTask?
   private let onSave: (TaskDraft) -> Bool
@@ -461,68 +384,8 @@ private struct TaskEditor: View {
       if saveFailed {
         Text(String(localized: "Unable to save. Try again.")).font(.caption).foregroundStyle(.red)
       }
-      DisclosureGroup(String(localized: "Details")) {
-        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-          GridRow {
-            Text(String(localized: "Date"))
-            DatePicker(
-              String(localized: "Date"),
-              selection: Binding(get: { draft.day.date }, set: { draft.day = LocalDay($0) }),
-              displayedComponents: .date
-            ).labelsHidden()
-          }
-          GridRow {
-            Text(String(localized: "Deadline"))
-            HStack(spacing: 8) {
-              Toggle(
-                String(localized: "Set a deadline"),
-                isOn: Binding(
-                  get: { draft.dueDay != nil },
-                  set: { draft.dueDay = $0 ? (draft.dueDay ?? draft.day) : nil }
-                ))
-              if draft.dueDay != nil {
-                DatePicker(
-                  String(localized: "Deadline"),
-                  selection: Binding(
-                    get: { draft.dueDay?.date ?? draft.day.date },
-                    set: { draft.dueDay = LocalDay($0) }),
-                  displayedComponents: .date
-                ).labelsHidden()
-              }
-            }
-          }
-          GridRow {
-            Text(String(localized: "Time"))
-            DatePicker(
-              String(localized: "Time"),
-              selection: Binding(
-                get: { timeDate },
-                set: {
-                  let c = Calendar.current.dateComponents([.hour, .minute], from: $0)
-                  draft.minuteOfDay = (c.hour ?? 0) * 60 + (c.minute ?? 0)
-                }), displayedComponents: .hourAndMinute
-            ).labelsHidden()
-            Button {
-              draft.minuteOfDay = nil
-            } label: {
-              Image(systemName: "xmark.circle")
-            }.buttonStyle(.plain).help(String(localized: "Anytime"))
-          }
-          if item == nil {
-            GridRow {
-              Text(String(localized: "Repeat"))
-              Picker(String(localized: "Repeat"), selection: $draft.frequency) {
-                ForEach(TaskFrequency.allCases) { Text($0.label).tag($0) }
-              }.labelsHidden()
-            }
-          }
-          GridRow {
-            Text(String(localized: "Notes"))
-            TextField(String(localized: "Notes"), text: $draft.notes, axis: .vertical).lineLimit(
-              2...4
-            ).textFieldStyle(.roundedBorder)
-          }
-        }.font(.callout).padding(.top, 8)
+      TaskDetailsDisclosure(isExpanded: $detailsExpanded) {
+        TaskDetailsFields(draft: $draft, includesRepeat: item == nil)
       }
       HStack {
         Spacer()
@@ -536,13 +399,165 @@ private struct TaskEditor: View {
     .padding(18).frame(width: 340).onAppear { titleFocused = true }
   }
 
-  private var timeDate: Date {
-    Calendar.current.date(
-      bySettingHour: (draft.minuteOfDay ?? 9 * 60) / 60, minute: (draft.minuteOfDay ?? 9 * 60) % 60,
-      second: 0, of: draft.day.date) ?? draft.day.date
-  }
   private func save() {
     guard !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
     if onSave(draft) { dismiss() } else { saveFailed = true }
+  }
+}
+
+private struct TaskDetailsDisclosure<Content: View>: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Binding var isExpanded: Bool
+  let content: Content
+
+  init(isExpanded: Binding<Bool>, @ViewBuilder content: () -> Content) {
+    _isExpanded = isExpanded
+    self.content = content()
+  }
+
+  private var motion: Animation? { reduceMotion ? nil : .easeOut(duration: 0.18) }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Button {
+        withAnimation(motion) { isExpanded.toggle() }
+      } label: {
+        HStack(spacing: 7) {
+          Image(systemName: "chevron.right")
+            .font(.system(size: 10, weight: .semibold))
+            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+          Text(String(localized: "Details"))
+          Spacer(minLength: 0)
+        }
+        .font(.callout.weight(.medium)).foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel(String(localized: "Details"))
+      .accessibilityValue(String(localized: isExpanded ? "Expanded" : "Collapsed"))
+
+      if isExpanded {
+        content
+          .padding(.top, 6)
+          .transition(
+            reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+      }
+    }
+  }
+}
+
+private struct TaskDetailsFields: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Binding var draft: TaskDraft
+  let includesRepeat: Bool
+
+  private var motion: Animation? { reduceMotion ? nil : .easeOut(duration: 0.18) }
+  private var deadlineIsSet: Bool { draft.dueDay != nil }
+  private var timeIsSet: Bool { draft.minuteOfDay != nil }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 9) {
+      LabeledContent(String(localized: "Date")) {
+        DatePicker(
+          String(localized: "Date"),
+          selection: Binding(
+            get: { draft.day.date }, set: { draft.day = LocalDay($0) }),
+          displayedComponents: .date
+        )
+        .datePickerStyle(.compact).labelsHidden().accessibilityLabel(
+          String(localized: "Date"))
+      }
+
+      LabeledContent(String(localized: "Deadline")) {
+        HStack(spacing: 8) {
+          if let dueDay = draft.dueDay {
+            DatePicker(
+              String(localized: "Deadline"),
+              selection: Binding(
+                get: { dueDay.date }, set: { draft.dueDay = LocalDay($0) }),
+              displayedComponents: .date
+            )
+            .datePickerStyle(.compact).labelsHidden().accessibilityLabel(
+              String(localized: "Deadline")
+            )
+            .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
+          } else {
+            Text(String(localized: "No deadline"))
+              .foregroundStyle(.tertiary).transition(.opacity)
+          }
+          Toggle(
+            String(localized: "Set a deadline"),
+            isOn: Binding(
+              get: { deadlineIsSet },
+              set: { enabled in
+                withAnimation(motion) {
+                  draft.dueDay = enabled ? (draft.dueDay ?? draft.day) : nil
+                }
+              })
+          )
+          .labelsHidden().accessibilityLabel(String(localized: "Set a deadline"))
+        }
+      }
+
+      LabeledContent(String(localized: "Time")) {
+        HStack(spacing: 8) {
+          if let minute = draft.minuteOfDay {
+            DatePicker(
+              String(localized: "Time"),
+              selection: Binding(
+                get: { timeDate(for: minute) },
+                set: {
+                  let c = Calendar.current.dateComponents([.hour, .minute], from: $0)
+                  draft.minuteOfDay = (c.hour ?? 9) * 60 + (c.minute ?? 0)
+                }),
+              displayedComponents: .hourAndMinute
+            )
+            .datePickerStyle(.compact).labelsHidden().accessibilityLabel(
+              String(localized: "Time")
+            )
+            .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
+          } else {
+            Text(String(localized: "Anytime"))
+              .foregroundStyle(.tertiary).transition(.opacity)
+          }
+          Toggle(
+            String(localized: "Set a time"),
+            isOn: Binding(
+              get: { timeIsSet },
+              set: { enabled in
+                withAnimation(motion) {
+                  draft.minuteOfDay = enabled ? (draft.minuteOfDay ?? 9 * 60) : nil
+                }
+              })
+          )
+          .labelsHidden().accessibilityLabel(String(localized: "Set a time"))
+        }
+      }
+
+      if includesRepeat {
+        LabeledContent(String(localized: "Repeat")) {
+          Picker(String(localized: "Repeat"), selection: $draft.frequency) {
+            ForEach(TaskFrequency.allCases) { Text($0.label).tag($0) }
+          }
+          .labelsHidden().pickerStyle(.menu).accessibilityLabel(String(localized: "Repeat"))
+        }
+      }
+
+      VStack(alignment: .leading, spacing: 4) {
+        Text(String(localized: "Notes")).foregroundStyle(.secondary)
+        TextField(String(localized: "Notes"), text: $draft.notes, axis: .vertical)
+          .lineLimit(1...2).textFieldStyle(.roundedBorder)
+      }
+    }
+    .font(.callout).controlSize(.small)
+    .animation(motion, value: deadlineIsSet)
+    .animation(motion, value: timeIsSet)
+  }
+
+  private func timeDate(for minute: Int) -> Date {
+    Calendar.current.date(
+      bySettingHour: minute / 60, minute: minute % 60, second: 0, of: draft.day.date)
+      ?? draft.day.date
   }
 }

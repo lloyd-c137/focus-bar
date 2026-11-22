@@ -15,6 +15,9 @@
 "Date" = "日期";
 "Deadline" = "截止日期";
 "Set a deadline" = "设置截止日期";
+"No deadline" = "未设置";
+"Expanded" = "已展开";
+"Collapsed" = "已折叠";
 "Due %@" = "截止：%@";
 "Time" = "时间";
 "Notes" = "备注";

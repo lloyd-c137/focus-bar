@@ -87,3 +87,13 @@
 5. **证据明确**：未真机编译的项目一律标 NOT_TESTED，不宣称 PASS。
 
 建议每个里程碑单独提交 PR，附变更说明和可复现测试命令。若只提交设计或 mock，不得误称完成真实应用。
+
+## Current implementation evidence (2026-11-22)
+
+- **Implemented:** Swift Package macOS app target, `MenuBarExtra` window, local SwiftData tasks and per-occurrence records, date navigation, CRUD, completion, overdue handling, Daily/Weekly recurrence, English/Simplified Chinese strings, menu-bar count preference, completed visibility, and login-item control.
+- **PASS:** `swift test` — 8 domain/store tests, including recurrence completion isolation, recurrence rescheduling, historical-vs-overdue classification, and reopening a disk-backed SwiftData store.
+- **PASS:** `swift format lint --strict --recursive Sources Tests`.
+- **PASS:** `./scripts/build-app.sh` — Release arm64 `.app` bundle, plist validation, and ad-hoc code signature verification on macOS 26.6 / Swift 6.3.3.
+- **PASS:** app process launched from the generated `.app` bundle.
+- **NOT_TESTED:** menu-bar click-through, Light/Dark visual audit, VoiceOver, Chinese IME interaction, UI automation, sleep/wake/time-zone changes on-device, and login-item registration. Native UI inspection was unavailable in the current computer-use session.
+- **NOT_READY_FOR_DISTRIBUTION:** the local bundle is ad-hoc signed and not notarized. No migration UI, import/export, or automatic recovery UI is included.

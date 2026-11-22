@@ -41,3 +41,8 @@
 "The local task store could not be opened." = "无法打开本地事项数据。";
 "Your data has not been reset." = "应用没有重置或清除你的数据。";
 "Nothing scheduled for this day." = "这一天还没有安排。";
+"Moved from %@" = "从%@移来";
+"Unable to load tasks." = "无法加载事项。";
+"Complete %@" = "完成%@";
+"Reopen %@" = "重新打开%@";
+"Set a time" = "设置时间";

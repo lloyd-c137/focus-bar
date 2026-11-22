@@ -1,3 +1,4 @@
+import AppKit
 import SwiftData
 import SwiftUI
 
@@ -5,25 +6,71 @@ struct TodayPanel: View {
   @AppStorage("showCompleted") private var showCompleted = true
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(TaskStore.self) private var store
-  @State private var selected = LocalDay(.now)
-  @State private var editor: TaskEditorRoute?
+  @Environment(CalendarState.self) private var calendarState
+  @State private var navigation = DateNavigationState()
+  @State private var editor: VisibleTask?
+  @State private var quickAddActive = false
+  @State private var quickDraft = TaskDraft(day: LocalDay(.now))
+  @State private var quickDetailsExpanded = false
+  @State private var quickAddFailed = false
+  @State private var maxPanelHeight: CGFloat = 600
   @State private var deleting: VisibleTask?
   @State private var showDeleteConfirmation = false
   @State private var deleteSeries = false
   @State private var showCompletedRows = false
 
-  private var today: LocalDay { LocalDay(.now) }
-  private var items: [VisibleTask] { store.tasks(on: selected, today: today) }
-  private var sections:
-    (
-      overdue: [VisibleTask], scheduled: [VisibleTask], anytime: [VisibleTask],
-      completed: [VisibleTask]
-    )
-  {
-    daySections(tasks: items, selected: selected, today: today)
+  private var today: LocalDay { calendarState.dateContext.today }
+  private var selected: LocalDay { navigation.displayedDay(today: today) }
+  private func select(_ day: LocalDay) {
+    navigation.select(day, today: today)
+  }
+
+  private var quickAddText: Binding<String> {
+    Binding(
+      get: { quickDraft.title },
+      set: {
+        quickDraft.title = $0
+        quickAddFailed = false
+      })
+  }
+
+  private var quickTimeDate: Date {
+    let minute = quickDraft.minuteOfDay ?? 9 * 60
+    return Calendar.current.date(
+      bySettingHour: minute / 60, minute: minute % 60, second: 0, of: quickDraft.day.date)
+      ?? quickDraft.day.date
+  }
+
+  private func beginQuickAdd() {
+    quickDraft = TaskDraft(day: selected)
+    quickDetailsExpanded = false
+    quickAddFailed = false
+    quickAddActive = true
+  }
+
+  private func submitQuickAdd(_ title: String) -> Bool {
+    guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+    quickDraft.title = title
+    if store.save(quickDraft) {
+      quickAddFailed = false
+      quickAddActive = false
+      return true
+    }
+    quickAddFailed = true
+    store.clearError()
+    return false
+  }
+
+  private func cancelQuickAdd() {
+    quickDraft = TaskDraft(day: selected)
+    quickDetailsExpanded = false
+    quickAddFailed = false
+    quickAddActive = false
   }
 
   var body: some View {
+    let sections = daySections(
+      tasks: store.tasks(on: selected, today: today), selected: selected, today: today)
     VStack(spacing: 0) {
       header
       ScrollView {
@@ -51,44 +98,125 @@ struct TodayPanel: View {
             }.buttonStyle(.plain)
             if showCompletedRows { taskSection(nil, tasks: sections.completed) }
           }
-          if items.isEmpty
-            || (sections.overdue.isEmpty && sections.scheduled.isEmpty && sections.anytime.isEmpty
-              && !sections.completed.isEmpty && !showCompleted)
+          if sections.overdue.isEmpty && sections.scheduled.isEmpty && sections.anytime.isEmpty
+            && (!showCompleted || sections.completed.isEmpty)
           {
-            emptyState
+            emptyState(sections: sections, selected: selected, today: today)
           }
         }
         .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
       }
       .scrollIndicators(.visible)
+      .frame(maxHeight: max(80, maxPanelHeight - quickAddHeightReservation))
       Divider()
-      HStack {
-        Button {
-          editor = .new(selected)
-        } label: {
-          Label("Add a task", systemImage: "plus")
+      if quickAddActive {
+        VStack(alignment: .leading, spacing: 5) {
+          HStack(spacing: 8) {
+            Image(systemName: "plus.circle.fill").foregroundStyle(.secondary)
+            QuickAddTextField(
+              text: quickAddText,
+              placeholder: String(localized: "Task title"),
+              onSubmit: submitQuickAdd,
+              onCancel: cancelQuickAdd
+            )
+            .frame(maxWidth: .infinity, minHeight: 28)
+            Button(String(localized: "Cancel"), systemImage: "xmark") { cancelQuickAdd() }
+              .labelStyle(.iconOnly).buttonStyle(.plain).help(String(localized: "Cancel"))
+          }
+          DisclosureGroup(String(localized: "Details"), isExpanded: $quickDetailsExpanded) {
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+              GridRow {
+                Text(String(localized: "Date"))
+                DatePicker(
+                  String(localized: "Date"),
+                  selection: Binding(
+                    get: { quickDraft.day.date }, set: { quickDraft.day = LocalDay($0) }),
+                  displayedComponents: .date
+                ).labelsHidden()
+              }
+              GridRow {
+                Text(String(localized: "Time"))
+                HStack(spacing: 8) {
+                  Toggle(
+                    String(localized: "Set a time"),
+                    isOn: Binding(
+                      get: { quickDraft.minuteOfDay != nil },
+                      set: {
+                        quickDraft.minuteOfDay = $0 ? (quickDraft.minuteOfDay ?? 9 * 60) : nil
+                      }
+                    ))
+                  if quickDraft.minuteOfDay != nil {
+                    DatePicker(
+                      String(localized: "Time"),
+                      selection: Binding(
+                        get: { quickTimeDate },
+                        set: {
+                          let components = Calendar.current.dateComponents(
+                            [.hour, .minute], from: $0)
+                          quickDraft.minuteOfDay =
+                            (components.hour ?? 9) * 60 + (components.minute ?? 0)
+                        }),
+                      displayedComponents: .hourAndMinute
+                    ).labelsHidden()
+                  }
+                }
+              }
+              GridRow {
+                Text(String(localized: "Repeat"))
+                Picker(String(localized: "Repeat"), selection: $quickDraft.frequency) {
+                  ForEach(TaskFrequency.allCases) { Text($0.label).tag($0) }
+                }.labelsHidden()
+              }
+              GridRow {
+                Text(String(localized: "Notes"))
+                TextField(String(localized: "Notes"), text: $quickDraft.notes, axis: .vertical)
+                  .lineLimit(1...3).textFieldStyle(.roundedBorder)
+              }
+            }
+            .font(.callout).padding(.top, 6)
+          }
+          .font(.caption)
+          if quickAddFailed {
+            Text(String(localized: "Unable to save. Try again."))
+              .font(.caption).foregroundStyle(.red).padding(.leading, 30)
+          }
         }
-        .buttonStyle(.plain).font(.system(size: 13, weight: .medium))
-        .keyboardShortcut("n", modifiers: .command)
-        Spacer()
-        SettingsLink { Image(systemName: "gearshape") }
-          .labelStyle(.iconOnly).buttonStyle(.plain).help(String(localized: "Settings…"))
-        Menu {
-          Button(String(localized: "Quit Focus Bar"), systemImage: "power") { NSApp.terminate(nil) }
-        } label: {
-          Image(systemName: "ellipsis")
-        }
-        .menuStyle(.borderlessButton).fixedSize().help(String(localized: "More"))
-      }.padding(.horizontal, 16).padding(.vertical, 12)
-    }
-    .frame(width: 360, height: 500)
-    .background(.regularMaterial)
-    .sheet(item: $editor) { route in
-      switch route {
-      case .new(let day): TaskEditor(day: day) { draft in store.save(draft) }
-      case .edit(let item):
-        TaskEditor(day: item.day, item: item) { draft in store.save(draft, editing: item) }
+        .padding(.horizontal, 16).padding(.vertical, 8)
+      } else {
+        HStack {
+          Button {
+            beginQuickAdd()
+          } label: {
+            Label("Add a task", systemImage: "plus")
+          }
+          .buttonStyle(.plain).font(.body.weight(.medium))
+          .keyboardShortcut("n", modifiers: .command)
+          Spacer()
+          SettingsLink { Image(systemName: "gearshape") }
+            .labelStyle(.iconOnly).buttonStyle(.plain).help(String(localized: "Settings…"))
+          Menu {
+            Button(String(localized: "Quit Focus Bar"), systemImage: "power") {
+              NSApp.terminate(nil)
+            }
+          } label: {
+            Image(systemName: "ellipsis")
+          }
+          .menuStyle(.borderlessButton).fixedSize().help(String(localized: "More"))
+        }.padding(.horizontal, 16).padding(.vertical, 12)
       }
+    }
+    .frame(maxHeight: maxPanelHeight)
+    .frame(width: 360)
+    .background(.regularMaterial)
+    .onAppear {
+      let screenHeight =
+        NSApp.keyWindow?.screen?.visibleFrame.height
+        ?? NSScreen.screens.first?.visibleFrame.height ?? 800
+      maxPanelHeight = min(760, screenHeight * 0.75)
+      calendarState.refresh()
+    }
+    .sheet(item: $editor) { item in
+      TaskEditor(day: item.day, item: item) { draft in store.save(draft, editing: item) }
     }
     .confirmationDialog(
       String(localized: "Delete task?"), isPresented: $showDeleteConfirmation,
@@ -103,20 +231,23 @@ struct TodayPanel: View {
       Text(String(localized: "This cannot be undone."))
     }
     .alert(
-      String(localized: "Unable to save. Try again."),
-      isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })
+      "Focus Bar",
+      isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.clearError() } })
     ) {
-      Button(String(localized: "Close"), role: .cancel) { store.error = nil }
-    }
-    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification))
-    { _ in
-      store.refreshBadge()
-      if selected == today { selected = LocalDay(.now) }
+      Button(String(localized: "Close"), role: .cancel) { store.clearError() }
+    } message: {
+      Text(store.error ?? String(localized: "Unable to save. Try again."))
     }
   }
 
+  private var quickAddHeightReservation: CGFloat {
+    if quickAddActive && quickDetailsExpanded { return 320 }
+    if quickAddActive { return 190 }
+    return 150
+  }
+
   private var selectedTitle: String {
-    if selected == today { return String(localized: "Today") }
+    if navigation.followsToday { return String(localized: "Today") }
     if selected == today.addingDays(1) { return String(localized: "Tomorrow") }
     return selected.date.formatted(date: .abbreviated, time: .omitted)
   }
@@ -125,22 +256,22 @@ struct TodayPanel: View {
     HStack(alignment: .center) {
       VStack(alignment: .leading, spacing: 3) {
         Button {
-          selected = today
+          navigation.returnToToday()
         } label: {
           Text(selectedTitle)
-            .font(.system(size: 20, weight: .semibold, design: .rounded)).foregroundStyle(.primary)
+            .font(.title2.weight(.semibold)).foregroundStyle(.primary)
         }.buttonStyle(.plain)
         Text(selected.date.formatted(date: .complete, time: .omitted))
-          .font(.system(size: 12)).foregroundStyle(.secondary)
+          .font(.callout).foregroundStyle(.secondary)
       }
       Spacer()
       Menu {
-        Button(String(localized: "Today")) { selected = today }
-        Button(String(localized: "Tomorrow")) { selected = today.addingDays(1) }
+        Button(String(localized: "Today")) { navigation.returnToToday() }
+        Button(String(localized: "Tomorrow")) { select(today.addingDays(1)) }
         Divider()
         DatePicker(
           String(localized: "Choose a date"),
-          selection: Binding(get: { selected.date }, set: { selected = LocalDay($0) }),
+          selection: Binding(get: { selected.date }, set: { select(LocalDay($0)) }),
           displayedComponents: .date)
       } label: {
         Image(systemName: "calendar").font(.system(size: 14, weight: .medium)).frame(
@@ -152,7 +283,7 @@ struct TodayPanel: View {
     .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
   }
 
-  private var emptyState: some View {
+  private func emptyState(sections: DaySections, selected: LocalDay, today: LocalDay) -> some View {
     VStack(spacing: 8) {
       if !sections.completed.isEmpty {
         Text(String(localized: "All done for this day."))
@@ -166,7 +297,7 @@ struct TodayPanel: View {
         .font(.system(size: 13)).foregroundStyle(.secondary)
       }
     }
-    .frame(maxWidth: .infinity).padding(.vertical, 48)
+    .frame(maxWidth: .infinity).padding(.vertical, 32)
   }
 
   @ViewBuilder private func taskSection(
@@ -180,11 +311,11 @@ struct TodayPanel: View {
       ForEach(tasks) { item in
         TaskRow(item: item, showTime: showTimes, onToggle: { store.toggle(item) })
           .contextMenu {
-            Button(String(localized: "Edit")) { editor = .edit(item) }
+            Button(String(localized: "Edit")) { editor = item }
             Button(String(localized: "Move to Tomorrow")) {
               store.moveToTomorrow(item, today: today)
             }
-            Button(String(localized: "Change Date")) { editor = .edit(item) }
+            Button(String(localized: "Change Date")) { editor = item }
             Divider()
             if item.isRecurring {
               Button(String(localized: "Delete This Occurrence"), role: .destructive) {
@@ -223,16 +354,25 @@ private struct TaskRow: View {
           )
           .frame(width: 22, height: 26)
       }.buttonStyle(.plain).accessibilityLabel(
-        item.completed ? "Reopen \(item.title)" : "Complete \(item.title)")
+        String(format: String(localized: item.completed ? "Reopen %@" : "Complete %@"), item.title))
       VStack(alignment: .leading, spacing: 3) {
-        Text(item.title).font(.system(size: 13)).foregroundStyle(
+        Text(item.title).font(.body).foregroundStyle(
           item.completed ? .secondary : .primary
         )
         .strikethrough(item.completed).lineLimit(2).textSelection(.enabled)
         if item.overdue {
           Text(item.day.date.formatted(date: .abbreviated, time: .omitted)).font(.caption2)
             .foregroundStyle(.secondary)
-        } else if showTime, let minute = item.minuteOfDay {
+        }
+        if let movedFrom = item.movedFromDay {
+          Text(
+            String(
+              format: String(localized: "Moved from %@"),
+              movedFrom.date.formatted(date: .abbreviated, time: .omitted))
+          )
+          .font(.caption2).foregroundStyle(.secondary)
+        }
+        if !item.overdue, showTime, let minute = item.minuteOfDay {
           Text(formatMinuteOfDay(minute)).font(.caption).foregroundStyle(.secondary)
         }
         if !item.notes.isEmpty {
@@ -265,7 +405,7 @@ private struct TaskEditor: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
       TextField(String(localized: "Task title"), text: $draft.title)
-        .textFieldStyle(.plain).font(.system(size: 16, weight: .medium)).focused($titleFocused)
+        .textFieldStyle(.plain).font(.title3.weight(.medium)).focused($titleFocused)
         .onSubmit(save)
       if saveFailed {
         Text(String(localized: "Unable to save. Try again.")).font(.caption).foregroundStyle(.red)
@@ -311,7 +451,7 @@ private struct TaskEditor: View {
               2...4
             ).textFieldStyle(.roundedBorder)
           }
-        }.font(.system(size: 12)).padding(.top, 8)
+        }.font(.callout).padding(.top, 8)
       }
       HStack {
         Spacer()
@@ -333,16 +473,5 @@ private struct TaskEditor: View {
   private func save() {
     guard !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
     if onSave(draft) { dismiss() } else { saveFailed = true }
-  }
-}
-
-private enum TaskEditorRoute: Identifiable {
-  case new(LocalDay)
-  case edit(VisibleTask)
-  var id: String {
-    switch self {
-    case .new(let day): "new-\(day.key)"
-    case .edit(let item): "edit-\(item.id)"
-    }
   }
 }

@@ -35,16 +35,20 @@ swift test
 - Optional local time and notes; stable ordering for anytime items
 - Daily and weekly recurrence with per-day completion and exception records
 - Overdue one-time tasks remain on their original date
+- Inline Quick Add defaults to the viewed date; optional date, time, recurrence, and notes are under Details
+- Today follows local-day changes and refreshes after wake, clock, and time-zone notifications
 - Optional menu bar count, completed-task visibility, and login item setting
 - English and Simplified Chinese UI strings
 
 ## Project layout
 
-- `Sources/FocusBar/Domain.swift`: local-date and deterministic list rules
+- `Sources/FocusBar/Domain.swift`: local-date, navigation, and deterministic list rules
+- `Sources/FocusBar/CalendarState.swift`: system calendar lifecycle notifications and badge refresh
+- `Sources/FocusBar/QuickAddTextField.swift`: native AppKit text entry with marked-text-aware Return handling
 - `Sources/FocusBar/Models.swift`: SwiftData task and recurrence occurrence records
 - `Sources/FocusBar/TaskStore.swift`: local persistence and task commands
 - `Sources/FocusBar/TodayPanel.swift`: menu bar list, date selection, task editing
 - `Sources/FocusBar/SettingsView.swift`: local preferences and login item
-- `Tests/FocusBarTests`: date, recurrence, ordering, and persistence tests
+- `Tests/FocusBarTests`: date, recurrence, ordering, and persistence tests (19 tests)
 
 Data remains in the app's local SwiftData store. There is no import/export or migration UI in this first implementation.

@@ -42,3 +42,8 @@
 "Your data has not been reset." = "Your data has not been reset.";
 "No items for this day." = "No items for this day.";
 "Nothing scheduled for this day." = "Nothing scheduled for this day.";
+"Moved from %@" = "Moved from %@";
+"Unable to load tasks." = "Unable to load tasks.";
+"Complete %@" = "Complete %@";
+"Reopen %@" = "Reopen %@";
+"Set a time" = "Set a time";

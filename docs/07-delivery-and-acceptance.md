@@ -1,6 +1,6 @@
 # 07 · V1 工程里程碑与验收标准
 
-状态：开发计划，**尚无应用源码或构建结果**。所有验收项目均需在真实 macOS / Xcode 环境完成后才能标 PASS。
+状态：V1 源码与本地构建已交付；下面的里程碑是验收基线，逐项证据见文末当前实现记录。未完成真实交互验证的项目仍标为 NOT_TESTED。
 
 ## M0 · Native Menu Bar Shell
 
@@ -88,12 +88,14 @@
 
 建议每个里程碑单独提交 PR，附变更说明和可复现测试命令。若只提交设计或 mock，不得误称完成真实应用。
 
-## Current implementation evidence (2026-11-22)
+## Current implementation evidence (2026-11-22, stabilization pass)
 
 - **Implemented:** Swift Package macOS app target, `MenuBarExtra` window, local SwiftData tasks and per-occurrence records, date navigation, CRUD, completion, overdue handling, Daily/Weekly recurrence, English/Simplified Chinese strings, menu-bar count preference, completed visibility, and login-item control.
-- **PASS:** `swift test` — 8 domain/store tests, including recurrence completion isolation, recurrence rescheduling, historical-vs-overdue classification, and reopening a disk-backed SwiftData store.
+- **PASS:** `swift test` — 19 domain/store tests, including follow-Today midnight/wake/time-zone state, Quick Add IME submission guard, 1,000-task query, daily/weekly reschedule collisions, per-instance state, and reopening a disk-backed SwiftData store.
 - **PASS:** `swift format lint --strict --recursive Sources Tests`.
-- **PASS:** `./scripts/build-app.sh` — Release arm64 `.app` bundle, plist validation, and ad-hoc code signature verification on macOS 26.6 / Swift 6.3.3.
-- **PASS:** app process launched from the generated `.app` bundle.
-- **NOT_TESTED:** menu-bar click-through, Light/Dark visual audit, VoiceOver, Chinese IME interaction, UI automation, sleep/wake/time-zone changes on-device, and login-item registration. Native UI inspection was unavailable in the current computer-use session.
+- **PASS:** `./scripts/build-app.sh` — Release `.app` bundle.
+- **PASS:** `codesign --verify --deep --strict ".FocusBarBuild/Focus Bar.app"` and `plutil -lint ".FocusBarBuild/Focus Bar.app/Contents/Info.plist"`.
+- **PASS:** explicit follow-Today state refreshes the local date and badge in response to calendar-day, time-zone, system-clock, app-activation, and workspace-wake notifications; manual date selection remains pinned.
+- **PASS:** recurring-instance conflicts retain stable independent records and show their origin date; Quick Add is inline with optional Details and native marked-text detection.
+- **NOT_TESTED:** real menu-bar click-through, Light/Dark screenshots and visual audit, VoiceOver, actual Chinese IME candidate interaction, UI automation, actual sleep/wake/time-zone changes on-device, and login-item registration/restart/error behavior. Unit simulations do not replace those macOS interaction checks; native UI inspection was unavailable in the current computer-use session.
 - **NOT_READY_FOR_DISTRIBUTION:** the local bundle is ad-hoc signed and not notarized. No migration UI, import/export, or automatic recovery UI is included.

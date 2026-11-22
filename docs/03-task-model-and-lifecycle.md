@@ -1,112 +1,92 @@
-# 03 · 任务模型、状态机与本地数据
+# 03 · 数据模型与任务生命周期（V1 手动版）
 
-## 1. 基本对象
+本版没有 AI 候选池、外部 SourceRecord、GitHub 数据模型或外部同步冲突。唯一任务来源是用户本人输入，所有记录本地存储。
 
-**Goal（长期目标）**：名称、重要程度、领域、是否激活、优先顺序、可选时间预算。它不是直接可勾选的 Task。Goals 可被一次性配置并长期沿用。
+## 1. 核心模型
 
-**SourceRecord（来源事实）**：原始日历事件/GitHub Issue/PR/个人输入的最小可追溯元数据。包含来源类型、外部稳定 ID、抓取时间、原始摘要、只读 URL、证据等级与最后修改时间。只在授权范围内采集。
-
-**Candidate（候选行动）**：从目标、SourceRecord 或用户输入提取的行动，可能尚未适合进入今天清单。必须附有出处及类型：确定的用户承诺 / 已知截止 / AI 推断建议。
-
-**Task（可操作任务）**：持久化的任务实体。具备稳定 UUID、标题、可选说明/截止时间/建议日期/预计投入、标签、来源链接、用户编辑标记和 lifecycle 状态。
-
-**DailyPlan（日计划）**：`localDate + timeZoneID` 标识的一个当日快照，记录生成时间、运行模式、输入来源摘要、任务顺序、数据新鲜度和版本。不得只用 UTC 日期作为本地日界线。
-
-**DailyPlanItem（当日任务引用）**：关联 Task、分组与排序位置、当日状态及生成理由。相同 Task 可以关联到不同日期，但不重复复制为多个任务实体。
-
-**UserOverride（用户覆盖）**：pin、edit、defer、dismiss-for-today、mark-done、explicitly-reopen 等用户行为事件，带时间戳和作用范围。合并计划时最高优先。
-
-**RoutineRule（重复规则）**：日常阅读等固定习惯的周期、启用状态及可选时间；按日期生成当天实例，永不沿用昨天的“已完成”状态。
-
-## 2. Task 最小字段（建议 SwiftData Model）
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| id | UUID | 内部稳定 ID |
-| title / notes | String | 用户可改，保留原始文本 |
-| origin | enum | manual / calendar / github / routine / aiSuggestion |
-| sourceKey | String? | 例如 github:owner/repo:issue:123，唯一去重参考 |
-| sourceURL | URL? | 官方来源链接，绝不自造 |
-| provenance | enum | explicit / verified / inferred |
-| goalIDs | [UUID] | 与多个长期目标的关系 |
-| dueAt | Date? | 确认来源的绝对时间，不能 AI 编造 |
-| scheduledFor | local date? | 建议处理日期，不等于截止时间 |
-| createdAt / updatedAt | Date | 审计和合并 |
-| status | enum | open / done / deferred / dismissed / archived |
-| userEditedFields | Set | 合并时不得覆盖的字段 |
-| priorityScore | Double? | 规划计算值，非事实 |
-| reasoning | String? | 简短推荐理由 |
-| confidence | enum | high / medium / low |
-| lastSeenAt | Date? | 最近一次从来源看到 |
-| estimationMinutes | Int? | 推测须标明，不能当承诺 |
-
-实现阶段可以将数组/集合关系映射为额外模型或可编码字段，避免把示意结构当成已经验证的 SwiftData schema。
-
-## 3. 生命周期状态机
-
+### Task
 ```text
-Capture / Sync → Candidate
-Candidate → Planned (Today) / Backlog / Needs Review
-Planned → Done / Deferred / Dismissed for Today
-Done → Reopened (explicit user action only)
-Deferred → Candidate on chosen date
-Dismissed for Today → May be reconsidered tomorrow, not today
-Archive → History (retain provenance)
+id: UUID
+title: String                       // 必填，trim 后非空
+notes: String?                      // 可选
+scheduledDate: LocalDate            // YYYY-MM-DD 语义；默认当前所查看日期
+scheduledTime: LocalTime?           // HH:mm，可空
+status: open | completed            // 用户明确勾选
+createdAt: Date
+updatedAt: Date
+completedAt: Date?
+sortOrder: Int                      // 同时间/无时间稳定排序
+seriesID: UUID?                     // 重复事项关联
+isDeleted: Bool                     // 或软删除模型，用于 Undo
 ```
 
-状态规则：
-- **Done 是用户操作**：不允许自动读取到 PR merged 就标记任务完成。
-- **Deferred 不是 Done**：推迟到指定日期并保留用户操作记录。
-- **Dismissed for Today**：当日不再自动插回；明确的新用户操作或严重截止变更可请求确认，默认不强插。
-- **Archive**：旧计划和任务历史可查询；数据保留策略可配置。
-- 完成状态与日计划关联：Routine 每天新实例，不跨日带 Done；长期任务的完成可保持 Task Done，而当日快照另存事件。
+这里的 LocalDate / LocalTime 是领域层概念；SwiftData 中可以用独立年月日数字字段、或提供安全转换的编码字段。**不要直接存 UTC 午夜 Date 作为用户选定日期的唯一真相**，否则跨时区可能移到前一天。
 
-## 4. 日期与时间边界
-
-- `dueAt` 存储 UTC 时刻与来源给定时区；显示按 Mac 当前本地时区转换。日期型 Deadline（没有具体时刻）另以 `dueLocalDate` 与源时区表示，**不得假装 00:00 截止**。
-- `scheduledFor` 是本地日期，`DailyPlan.localDate` 使用本地日期 + timeZoneID。
-- 用户在旅行/修改时区时，对截止时间与每日快照做清晰转换策略。不能自动把昨天已完成的 Routine 迁移到今天。
-- macOS 睡眠、关机、跨过午夜后，下一次唤醒/启动进行日界线检查、幂等生成，不会在每次打开面板时覆盖今日修改。
-
-## 5. 去重与冲突
-- 首选稳定外部 ID（calendar event identifier + occurrence time，GitHub repo + item type + number）与 sourceKey 去重。
-- 单一事件在多个来源出现时，根据证据与匹配规则关联 SourceRecord；标题相似不能自动合并不同事项。
-- 跨日延续任务与新候选重合时沿用 Task ID，不制造第二个复选框。
-- 用户修改标题之后外部来源更新，只同步未锁定字段；发生实质差异应写入变更记录而非静默覆盖。
-- 重复抓取、并发定时调用需使用 idempotency key；事务内维护任务及计划关联。
-- AI 建议与确定性来源相矛盾时，以来源证据和用户覆盖为准。
-
-## 6. 优先级与信任等级
-
-| 级别 | 说明 | 是否能进入 Must Do |
-| --- | --- | --- |
-| explicit | 用户直接创建/确认具体当日承诺 | 可以 |
-| verified | 外部数据存在可核实截止或已承诺行动 | 有清晰行动证据才可以 |
-| inferred | 从活动推断出的可选工作 | 不可以，最多 Priorities/Needs Review |
-
-仅凭“今天有会议”不能生成“必须准备会议材料”；仅凭 GitHub 有新 Commit 不能生成“必须审核 PR”；仅凭历史兴趣不能生成虚构的任务。
-
-## 7. 用户行为优先合并（核心不变量）
-
-1. **今天已完成的任务不会因后台同步恢复为未完成。**
-2. **今天被移除的任务不会因刷新重新出现。**
-3. **用户改写的任务标题/日期不被 LLM 或源抓取覆盖。**
-4. **同一源记录在一天内不会生成两个任务。**
-5. **Routine 每个日期有独立完成记录。**
-6. **没有可核实来源的 Deadline 必须为空。**
-7. **失败刷新不删除已有计划。**
-
-## 8. 建议本地模型关系
-
+### RecurrenceRule
 ```text
-Goal 1---N GoalTaskLink N---1 Task
-Task 1---N DailyPlanItem N---1 DailyPlan
-SourceRecord N---N Task (TaskSourceLink)
-Task 1---N UserOverride
-RoutineRule 1---N Task instances
-SyncCursor 1---1 IntegrationConfig
+id: UUID
+titleTemplate: String
+notesTemplate: String?
+startDate: LocalDate
+time: LocalTime?
+frequency: none | daily | weekly
+weekdays: Set<Weekday>?             // weekly，按选定星期
+endDate: LocalDate?                 // 可空
+isEnabled: Bool
+createdAt: Date
+updatedAt: Date
 ```
 
-使用迁移版本和数据库 backup/restore 测试；敏感原始载荷只存必要摘要，避免将整份日历和仓库内容长期复制到本地。
+重复规则生成按日 **occurrence**，通过 `seriesID + localDate` 唯一键避免多次刷新重复。完成/跳过状态按 occurrence 单独保存。V1 默认编辑当前实例；若提供“编辑此系列”必须明确确认作用范围。
 
-关联：[PRD](01-product-requirements.md) · [规划引擎](04-planning-engine.md) · [测试](07-delivery-and-acceptance.md)
+### CompletionRecord / OccurrenceOverride
+对重复事项记录 `seriesID, occurrenceDate, completedAt?, hidden?, overrideTitle?, overrideTime?`；不因次日进入新日将昨天状态沿用。生成可视 occurrence 可以采用按需虚拟展开 + 独立覆盖记录，避免一次创建无限任务。
+
+### Preferences
+`showMenuBarCount`、`launchAtLogin`、`showCompleted`、`defaultDateView`、`useSystemAppearance`。
+
+## 2. 任务生命周期
+
+```text
+Create → Open → Completed ⇄ Reopened
+                 ↓
+             Delete (with Undo/confirmation)
+Open → Rescheduled → Open (new scheduled date)
+```
+
+- 所有完成都由用户勾选；无自动完成。
+- 已完成单次事项不会出现在 Overdue。
+- 单次未完成事项跨日后出现在 Today 的 Overdue，仍保留原始 scheduledDate。
+- “移动到明天”是用户明确改动 scheduledDate，不会制造第二条重复任务。
+- 删除要有 Undo 或确认，防止误触后永久丢失。建议可以选择软删除和归档恢复策略。
+- 重复规则按 occurrence 独立完成；修改规则后，用户手动覆盖/完成的历史记录不应该丢失。
+
+## 3. 展示查询
+
+选中日期 D 时：
+1. 选中日期的未完成非重复 Task。
+2. 按规则匹配 D 的未完成重复 occurrence（扣除例外）。
+3. 如果 D 为 Today，额外展示 `scheduledDate < Today` 的未完成单次任务于 Overdue。查看其他日期默认不混入 Today Overdue。
+4. 选中日期已完成事项折叠显示。
+5. 排序：Overdue 按原日期升序；当日有时间事项按时刻升序；无时间事项按 sortOrder/createdAt；已完成按完成时间倒序。
+6. 任务数量没有 3 件等上限；长清单滚动。
+
+## 4. 日期与时区
+
+- 计划日期作为用户选择的 **calendar date** 存储，不随系统时区变化而意外改日。
+- 具体时间是用户选择的该日当地墙上时间，V1 只做清单显示，不为 DST 缺失/重复时刻自动发送提醒；若时间无效需标注并要求用户确认。
+- Today 由系统当前 Calendar 和 TimeZone 获取，检测日期变更/唤醒并刷新查询。
+- 系统时间改动可能改变“今日”和“逾期”的判断，但不修改源任务日期。
+- 12/24 小时显示尊重系统 Locale。
+
+## 5. 数据一致性
+
+- 同一任务每次打开只有同一个 UUID。
+- 重复 occurrence 的唯一键保证幂等，不重复生成。
+- 完成/撤销操作跨重启不丢失。
+- 一次事务更新任务与对应重复 occurrence 状态。
+- 修改编辑状态时不丢输入；SQLite/SwiftData 错误则明确呈现，不能假成功。
+- 数据模型升级要有 migration plan 和旧版本迁移测试。
+- 本地完全离线，无外部数据来源冲突或 AI 生成结果覆盖用户操作。
+
+相关：[显示规则](04-planning-engine.md) · [测试](07-delivery-and-acceptance.md)

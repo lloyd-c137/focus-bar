@@ -12,6 +12,75 @@ final class DomainTests: XCTestCase {
     XCTAssertEqual(selected.addingDays(1).key, "2026-11-23")
   }
 
+  private func instant(_ value: String) throws -> Date {
+    try XCTUnwrap(ISO8601DateFormatter().date(from: value))
+  }
+
+  func testTodayNavigationFollowsAcrossMidnight() throws {
+    let zone = try XCTUnwrap(TimeZone(identifier: "Asia/Singapore"))
+    let beforeMidnight = try instant("2026-06-02T23:59:00+08:00")
+    var context = LocalDayContext(now: beforeMidnight, timeZone: zone)
+    let navigation = DateNavigationState()
+    XCTAssertEqual(navigation.displayedDay(today: context.today).key, "2026-06-02")
+
+    context.refresh(now: beforeMidnight.addingTimeInterval(120), timeZone: zone)
+    XCTAssertEqual(context.today.key, "2026-06-03")
+    XCTAssertEqual(navigation.displayedDay(today: context.today).key, "2026-06-03")
+  }
+
+  func testPinnedDateDoesNotMoveAcrossMidnight() throws {
+    let zone = try XCTUnwrap(TimeZone(identifier: "Asia/Singapore"))
+    let beforeMidnight = try instant("2026-06-02T23:59:00+08:00")
+    var context = LocalDayContext(now: beforeMidnight, timeZone: zone)
+    let yesterday = LocalDay(key: "2026-06-01")
+    var navigation = DateNavigationState()
+    navigation.select(yesterday, today: context.today)
+
+    context.refresh(now: beforeMidnight.addingTimeInterval(120), timeZone: zone)
+    XCTAssertFalse(navigation.followsToday)
+    XCTAssertEqual(navigation.displayedDay(today: context.today), yesterday)
+  }
+
+  func testReturningToTodayRestoresFollowMode() throws {
+    let current = LocalDay(key: "2026-06-03")
+    var navigation = DateNavigationState()
+    navigation.select(LocalDay(key: "2026-06-01"), today: current)
+    navigation.returnToToday()
+    XCTAssertTrue(navigation.followsToday)
+    XCTAssertEqual(navigation.displayedDay(today: current), current)
+  }
+
+  func testWakeRefreshAdvancesTodayAfterSleep() throws {
+    let zone = try XCTUnwrap(TimeZone(identifier: "Asia/Singapore"))
+    let beforeSleep = try instant("2026-06-02T22:00:00+08:00")
+    var context = LocalDayContext(now: beforeSleep, timeZone: zone)
+    let afterWake = try instant("2026-06-03T08:00:00+08:00")
+    context.refresh(now: afterWake, timeZone: zone)
+    XCTAssertEqual(context.today.key, "2026-06-03")
+  }
+
+  func testTimezoneChangeUpdatesTodayButKeepsPinnedCalendarDay() throws {
+    let instant = try instant("2026-01-01T00:30:00Z")
+    let losAngeles = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+    let utc = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+    var context = LocalDayContext(now: instant, timeZone: losAngeles)
+    var navigation = DateNavigationState()
+    let pinned = LocalDay(key: "2025-12-30")
+    navigation.select(pinned, today: context.today)
+    XCTAssertEqual(context.today.key, "2025-12-31")
+
+    context.refresh(now: instant, timeZone: utc)
+    XCTAssertEqual(context.today.key, "2026-01-01")
+    XCTAssertEqual(navigation.displayedDay(today: context.today), pinned)
+  }
+
+  func testQuickAddDoesNotSubmitDuringIMECompositionOrDuplicateSaves() {
+    XCTAssertFalse(canSubmitQuickAdd(title: "中文", hasMarkedText: true, isSubmitting: false))
+    XCTAssertFalse(canSubmitQuickAdd(title: "   ", hasMarkedText: false, isSubmitting: false))
+    XCTAssertFalse(canSubmitQuickAdd(title: "Task", hasMarkedText: false, isSubmitting: true))
+    XCTAssertTrue(canSubmitQuickAdd(title: "Task", hasMarkedText: false, isSubmitting: false))
+  }
+
   func testDailyAndWeeklyRecurrenceBoundaries() {
     XCTAssertTrue(
       recurrenceMatches(
@@ -33,7 +102,7 @@ final class DomainTests: XCTestCase {
         id: id, title: id, notes: "", day: day ?? self.day("2026-11-22"), minuteOfDay: minute,
         completed: false, completedAt: nil, overdue: overdue, isRecurring: false, sourceID: UUID(),
         sortOrder: order,
-        occurrenceDay: nil)
+        occurrenceDay: nil, movedFromDay: nil)
     }
     let selected = day("2026-11-22")
     let result = daySections(
@@ -78,7 +147,24 @@ final class DomainTests: XCTestCase {
       store.save(TaskDraft(title: "Walk", day: tomorrow, minuteOfDay: nil), editing: current))
 
     XCTAssertTrue(store.tasks(on: today, today: today).isEmpty)
-    XCTAssertEqual(store.tasks(on: tomorrow, today: today).count, 2)
+    let collisions = store.tasks(on: tomorrow, today: today)
+    XCTAssertEqual(collisions.count, 2)
+    XCTAssertEqual(Set(collisions.map(\.id)).count, 2)
+    let moved = try XCTUnwrap(collisions.first(where: { $0.movedFromDay == today }))
+    let regular = try XCTUnwrap(collisions.first(where: { $0.movedFromDay == nil }))
+
+    store.toggle(moved)
+    XCTAssertTrue(
+      store.tasks(on: tomorrow, today: today).first(where: { $0.id == moved.id })?.completed == true
+    )
+    XCTAssertFalse(
+      store.tasks(on: tomorrow, today: today).first(where: { $0.id == regular.id })?.completed
+        == true)
+    store.delete(regular)
+    let remaining = store.tasks(on: tomorrow, today: today)
+    XCTAssertEqual(remaining.count, 1)
+    XCTAssertEqual(remaining.first?.id, moved.id)
+    XCTAssertTrue(remaining.first?.completed == true)
     XCTAssertEqual(store.tasks(on: today.addingDays(2), today: today).count, 1)
   }
 
@@ -109,6 +195,112 @@ final class DomainTests: XCTestCase {
       store.save(TaskDraft(title: "Read", day: today, minuteOfDay: nil), editing: item))
     XCTAssertNil(store.tasks(on: today, today: today).first?.minuteOfDay)
     XCTAssertEqual(store.tasks(on: today.addingDays(1), today: today).first?.minuteOfDay, 600)
+  }
+
+  func testMovedOccurrenceRemainsVisibleBeforeSeriesStart() throws {
+    let schema = Schema([TaskRecord.self, OccurrenceRecord.self])
+    let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+    let container = try ModelContainer(for: schema, configurations: [configuration])
+    let store = TaskStore(context: container.mainContext)
+    let start = LocalDay(.now)
+    let earlier = start.addingDays(-1)
+    XCTAssertTrue(
+      store.save(TaskDraft(title: "Read", day: start, minuteOfDay: nil, frequency: .daily)))
+    let current = try XCTUnwrap(store.tasks(on: start, today: start).first)
+    XCTAssertTrue(
+      store.save(TaskDraft(title: "Read", day: earlier, minuteOfDay: nil), editing: current))
+
+    let moved = try XCTUnwrap(store.tasks(on: earlier, today: start).first)
+    XCTAssertEqual(moved.movedFromDay, start)
+  }
+
+  func testWeeklyOccurrenceConflictKeepsBothStableInstances() throws {
+    let schema = Schema([TaskRecord.self, OccurrenceRecord.self])
+    let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+    let container = try ModelContainer(for: schema, configurations: [configuration])
+    let store = TaskStore(context: container.mainContext)
+    let today = LocalDay(.now)
+    XCTAssertTrue(
+      store.save(TaskDraft(title: "Review", day: today, minuteOfDay: nil, frequency: .weekly)))
+    let current = try XCTUnwrap(store.tasks(on: today, today: today).first)
+    let nextWeek = today.addingDays(7)
+    XCTAssertTrue(
+      store.save(TaskDraft(title: "Review", day: nextWeek, minuteOfDay: nil), editing: current))
+
+    let collisions = store.tasks(on: nextWeek, today: today)
+    XCTAssertEqual(collisions.count, 2)
+    XCTAssertEqual(Set(collisions.map(\.id)).count, 2)
+    XCTAssertEqual(collisions.filter { $0.movedFromDay == today }.count, 1)
+  }
+
+  func testDeleteSeriesRemovesCurrentAndFutureOccurrences() throws {
+    let schema = Schema([TaskRecord.self, OccurrenceRecord.self])
+    let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+    let container = try ModelContainer(for: schema, configurations: [configuration])
+    let store = TaskStore(context: container.mainContext)
+    let today = LocalDay(.now)
+    XCTAssertTrue(
+      store.save(TaskDraft(title: "Read", day: today, minuteOfDay: nil, frequency: .daily)))
+    let current = try XCTUnwrap(store.tasks(on: today, today: today).first)
+    store.toggle(current)
+    store.deleteSeries(current)
+
+    XCTAssertTrue(store.tasks(on: today, today: today).isEmpty)
+    XCTAssertTrue(store.tasks(on: today.addingDays(1), today: today).isEmpty)
+  }
+
+  func testMovedConflictPersistsWithIndependentCompletion() throws {
+    let schema = Schema([TaskRecord.self, OccurrenceRecord.self])
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      .appendingPathExtension("sqlite")
+    defer {
+      try? FileManager.default.removeItem(at: url)
+      try? FileManager.default.removeItem(atPath: url.path + "-shm")
+      try? FileManager.default.removeItem(atPath: url.path + "-wal")
+    }
+    let today = LocalDay(.now)
+    let tomorrow = today.addingDays(1)
+
+    do {
+      let config = ModelConfiguration(schema: schema, url: url, cloudKitDatabase: .none)
+      let container = try ModelContainer(for: schema, configurations: [config])
+      let store = TaskStore(context: container.mainContext)
+      XCTAssertTrue(
+        store.save(TaskDraft(title: "Read", day: today, minuteOfDay: nil, frequency: .daily)))
+      let current = try XCTUnwrap(store.tasks(on: today, today: today).first)
+      XCTAssertTrue(
+        store.save(TaskDraft(title: "Read", day: tomorrow, minuteOfDay: nil), editing: current))
+      let moved = try XCTUnwrap(
+        store.tasks(on: tomorrow, today: today).first(where: { $0.movedFromDay == today }))
+      store.toggle(moved)
+    }
+    do {
+      let config = ModelConfiguration(schema: schema, url: url, cloudKitDatabase: .none)
+      let container = try ModelContainer(for: schema, configurations: [config])
+      let store = TaskStore(context: container.mainContext)
+      let firstRead = store.tasks(on: tomorrow, today: today)
+      let secondRead = store.tasks(on: tomorrow, today: today)
+      XCTAssertEqual(firstRead.count, 2)
+      XCTAssertEqual(Set(firstRead.map(\.id)).count, 2)
+      XCTAssertEqual(firstRead.count, secondRead.count)
+      XCTAssertTrue(firstRead.first(where: { $0.movedFromDay == today })?.completed == true)
+      XCTAssertFalse(firstRead.first(where: { $0.movedFromDay == nil })?.completed == true)
+    }
+  }
+
+  func testFilteredQueryHandlesOneThousandTasks() throws {
+    let schema = Schema([TaskRecord.self, OccurrenceRecord.self])
+    let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+    let container = try ModelContainer(for: schema, configurations: [configuration])
+    let store = TaskStore(context: container.mainContext)
+    let today = LocalDay(.now)
+    for index in 0..<1_000 {
+      container.mainContext.insert(
+        TaskRecord(title: "Task \(index)", day: today.addingDays(index % 31), sortOrder: index))
+    }
+    try container.mainContext.save()
+
+    XCTAssertEqual(store.tasks(on: today.addingDays(30), today: today).count, 32)
   }
 
   func testTaskSurvivesReopeningPersistentStore() throws {

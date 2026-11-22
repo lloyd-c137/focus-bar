@@ -13,9 +13,29 @@ import SwiftUI
 
   func tasks(on selected: LocalDay, today: LocalDay) -> [VisibleTask] {
     do {
-      let records = try context.fetch(FetchDescriptor<TaskRecord>()).filter { !$0.deleted }
-      let occurrences = try context.fetch(FetchDescriptor<OccurrenceRecord>())
+      let selectedKey = selected.key
+      let todayKey = today.key
+      let includeOverdue = selected == today
+      let occurrencePredicate = #Predicate<OccurrenceRecord> { occurrence in
+        occurrence.dayKey == selectedKey || occurrence.rescheduledDayKey == selectedKey
+      }
+      let occurrences = try context.fetch(
+        FetchDescriptor<OccurrenceRecord>(predicate: occurrencePredicate))
+      let movedSeriesIDs =
+        occurrences
+        .filter { $0.rescheduledDayKey == selectedKey && !$0.hidden }
+        .map(\.seriesID)
+      let taskPredicate = #Predicate<TaskRecord> { task in
+        !task.deleted
+          && (task.dayKey == selectedKey
+            || (includeOverdue && task.dayKey < todayKey && task.frequency == "never"
+              && !task.completed)
+            || (task.dayKey <= selectedKey && task.frequency != "never")
+            || movedSeriesIDs.contains(task.id))
+      }
+      let records = try context.fetch(FetchDescriptor<TaskRecord>(predicate: taskPredicate))
       let overrides = Dictionary(uniqueKeysWithValues: occurrences.map { ($0.key, $0) })
+      let recordsByID = Dictionary(uniqueKeysWithValues: records.map { ($0.id, $0) })
       var result: [VisibleTask] = []
       for task in records {
         if task.recurrence == .never {
@@ -27,7 +47,8 @@ import SwiftUI
                 minuteOfDay: task.minuteOfDay, completed: task.completed,
                 completedAt: task.completedAt,
                 overdue: isOverdue,
-                isRecurring: false, sourceID: task.id, sortOrder: task.sortOrder, occurrenceDay: nil
+                isRecurring: false, sourceID: task.id, sortOrder: task.sortOrder,
+                occurrenceDay: nil, movedFromDay: nil
               ))
           }
         } else if recurrenceMatches(
@@ -47,13 +68,14 @@ import SwiftUI
                 completed: occurrence?.completed ?? false, completedAt: occurrence?.completedAt,
                 overdue: false,
                 isRecurring: true,
-                sourceID: task.id, sortOrder: task.sortOrder, occurrenceDay: selected))
+                sourceID: task.id, sortOrder: task.sortOrder, occurrenceDay: selected,
+                movedFromDay: nil))
           }
         }
       }
       for occurrence in occurrences
       where occurrence.rescheduledDayKey == selected.key && !occurrence.hidden {
-        guard let task = records.first(where: { $0.id == occurrence.seriesID }),
+        guard let task = recordsByID[occurrence.seriesID],
           !result.contains(where: { $0.id == occurrence.key })
         else { continue }
         result.append(
@@ -64,11 +86,12 @@ import SwiftUI
               ? occurrence.minuteOverride : task.minuteOfDay,
             completed: occurrence.completed, completedAt: occurrence.completedAt, overdue: false,
             isRecurring: true, sourceID: task.id,
-            sortOrder: task.sortOrder, occurrenceDay: LocalDay(key: occurrence.dayKey)))
+            sortOrder: task.sortOrder, occurrenceDay: LocalDay(key: occurrence.dayKey),
+            movedFromDay: LocalDay(key: occurrence.dayKey)))
       }
       return result
     } catch {
-      self.error = String(localized: "Unable to save. Try again.")
+      self.error = String(localized: "Unable to load tasks.")
       return []
     }
   }
@@ -176,8 +199,11 @@ import SwiftUI
     }
   }
 
-  func refreshBadge() {
-    let today = LocalDay(.now)
+  func clearError() {
+    error = nil
+  }
+
+  func refreshBadge(today: LocalDay = LocalDay(.now)) {
     badgeCount = tasks(on: today, today: today).filter { !$0.completed }.count
   }
 

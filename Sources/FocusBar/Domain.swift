@@ -59,27 +59,42 @@ struct VisibleTask: Identifiable {
   let sourceID: UUID
   let sortOrder: Int
   let occurrenceDay: LocalDay?
+  let movedFromDay: LocalDay?
   var occurrenceSourceDay: LocalDay { occurrenceDay ?? day }
 }
 
-func daySections(tasks: [VisibleTask], selected: LocalDay, today: LocalDay) -> (
-  overdue: [VisibleTask], scheduled: [VisibleTask], anytime: [VisibleTask], completed: [VisibleTask]
-) {
+struct DaySections {
+  let overdue: [VisibleTask]
+  let scheduled: [VisibleTask]
+  let anytime: [VisibleTask]
+  let completed: [VisibleTask]
+}
+
+func daySections(tasks: [VisibleTask], selected: LocalDay, today: LocalDay) -> DaySections {
   let overdue = tasks.filter { $0.overdue && !$0.completed }
-    .sorted { $0.day == $1.day ? $0.sortOrder < $1.sortOrder : $0.day < $1.day }
+    .sorted {
+      if $0.day != $1.day { return $0.day < $1.day }
+      if $0.sortOrder != $1.sortOrder { return $0.sortOrder < $1.sortOrder }
+      return $0.id < $1.id
+    }
   let current = tasks.filter { !$0.overdue && ($0.day == selected || $0.completed) }
   let completed = current.filter(\.completed).sorted {
     ($0.completedAt ?? .distantPast) == ($1.completedAt ?? .distantPast)
-      ? $0.sortOrder > $1.sortOrder
+      ? ($0.sortOrder == $1.sortOrder ? $0.id < $1.id : $0.sortOrder > $1.sortOrder)
       : ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast)
   }
   let open = current.filter { !$0.completed }
   let scheduled = open.filter { $0.minuteOfDay != nil }.sorted {
-    $0.minuteOfDay == $1.minuteOfDay
-      ? $0.sortOrder < $1.sortOrder : $0.minuteOfDay! < $1.minuteOfDay!
+    if $0.minuteOfDay != $1.minuteOfDay { return $0.minuteOfDay! < $1.minuteOfDay! }
+    if $0.sortOrder != $1.sortOrder { return $0.sortOrder < $1.sortOrder }
+    return $0.id < $1.id
   }
-  let anytime = open.filter { $0.minuteOfDay == nil }.sorted { $0.sortOrder < $1.sortOrder }
-  return (selected == today ? overdue : [], scheduled, anytime, completed)
+  let anytime = open.filter { $0.minuteOfDay == nil }.sorted {
+    $0.sortOrder == $1.sortOrder ? $0.id < $1.id : $0.sortOrder < $1.sortOrder
+  }
+  return DaySections(
+    overdue: selected == today ? overdue : [], scheduled: scheduled, anytime: anytime,
+    completed: completed)
 }
 
 func formatMinuteOfDay(_ minute: Int, locale: Locale = .current) -> String {
@@ -101,4 +116,45 @@ func recurrenceMatches(
     let weekday = Calendar.current.component(.weekday, from: date.date)
     return weekdays.contains(weekday)
   }
+}
+
+struct LocalDayContext: Equatable {
+  private(set) var today: LocalDay
+  private(set) var timeZoneIdentifier: String
+
+  init(now: Date = .now, timeZone: TimeZone = .current) {
+    var calendar = Calendar.current
+    calendar.timeZone = timeZone
+    today = LocalDay(now, calendar: calendar)
+    timeZoneIdentifier = timeZone.identifier
+  }
+
+  mutating func refresh(now: Date, timeZone: TimeZone) {
+    var calendar = Calendar.current
+    calendar.timeZone = timeZone
+    today = LocalDay(now, calendar: calendar)
+    timeZoneIdentifier = timeZone.identifier
+  }
+}
+
+struct DateNavigationState: Equatable {
+  private(set) var pinnedDay: LocalDay?
+
+  var followsToday: Bool { pinnedDay == nil }
+
+  func displayedDay(today: LocalDay) -> LocalDay {
+    pinnedDay ?? today
+  }
+
+  mutating func select(_ day: LocalDay, today: LocalDay) {
+    pinnedDay = day == today ? nil : day
+  }
+
+  mutating func returnToToday() {
+    pinnedDay = nil
+  }
+}
+
+func canSubmitQuickAdd(title: String, hasMarkedText: Bool, isSubmitting: Bool) -> Bool {
+  !hasMarkedText && !isSubmitting && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 }

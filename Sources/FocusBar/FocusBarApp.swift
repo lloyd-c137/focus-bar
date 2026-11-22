@@ -8,24 +8,28 @@ import SwiftUI
   private let startupError: String?
   @AppStorage("showMenuBarCount") private var showCount = false
   @State private var taskStore: TaskStore?
+  @State private var calendarState: CalendarState?
 
   init() {
     do {
       let modelContainer = try ModelContainer(for: TaskRecord.self, OccurrenceRecord.self)
       container = modelContainer
       startupError = nil
-      _taskStore = State(initialValue: TaskStore(context: modelContainer.mainContext))
+      let store = TaskStore(context: modelContainer.mainContext)
+      _taskStore = State(initialValue: store)
+      _calendarState = State(initialValue: CalendarState(taskStore: store))
     } catch {
       container = nil
       startupError = error.localizedDescription
       _taskStore = State(initialValue: nil)
+      _calendarState = State(initialValue: nil)
     }
   }
 
   var body: some Scene {
     MenuBarExtra {
-      if let container, let taskStore {
-        TodayPanel().modelContainer(container).environment(taskStore)
+      if let container, let taskStore, let calendarState {
+        TodayPanel().modelContainer(container).environment(taskStore).environment(calendarState)
       } else {
         StorageFailureView(message: startupError ?? "")
       }

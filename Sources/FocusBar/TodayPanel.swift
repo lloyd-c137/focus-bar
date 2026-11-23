@@ -108,6 +108,8 @@ struct TodayPanel: View {
           }
         }
         .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
+        .animation(
+          reduceMotion ? nil : .easeInOut(duration: 0.16), value: store.revision)
       }
       .scrollIndicators(.visible)
       .frame(maxHeight: max(80, panelHeight - quickAddHeightReservation))

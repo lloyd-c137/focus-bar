@@ -6,12 +6,14 @@ import SwiftUI
   private let context: ModelContext
   var error: String?
   private(set) var badgeCount = 0
+  private(set) var revision = 0
   init(context: ModelContext) {
     self.context = context
     refreshBadge()
   }
 
   func tasks(on selected: LocalDay, today: LocalDay) -> [VisibleTask] {
+    _ = revision
     do {
       let selectedKey = selected.key
       let todayKey = today.key
@@ -138,7 +140,7 @@ import SwiftUI
       }
       try context.save()
       error = nil
-      refreshBadge()
+      tasksDidChange()
       return true
     } catch {
       context.rollback()
@@ -159,7 +161,7 @@ import SwiftUI
       }
       try context.save()
       error = nil
-      refreshBadge()
+      tasksDidChange()
     } catch {
       context.rollback()
       self.error = String(localized: "Unable to save. Try again.")
@@ -176,7 +178,7 @@ import SwiftUI
       }
       try context.save()
       error = nil
-      refreshBadge()
+      tasksDidChange()
     } catch {
       context.rollback()
       self.error = String(localized: "Unable to save. Try again.")
@@ -193,7 +195,7 @@ import SwiftUI
       }
       try context.save()
       error = nil
-      refreshBadge()
+      tasksDidChange()
     } catch {
       context.rollback()
       self.error = String(localized: "Unable to save. Try again.")
@@ -205,7 +207,7 @@ import SwiftUI
       if let task = try task(id: item.sourceID) { task.deleted = true }
       try context.save()
       error = nil
-      refreshBadge()
+      tasksDidChange()
     } catch {
       context.rollback()
       self.error = String(localized: "Unable to save. Try again.")
@@ -218,6 +220,11 @@ import SwiftUI
 
   func refreshBadge(today: LocalDay = LocalDay(.now)) {
     badgeCount = tasks(on: today, today: today).filter { !$0.completed }.count
+  }
+
+  private func tasksDidChange() {
+    revision &+= 1
+    refreshBadge()
   }
 
   private func task(id: UUID) throws -> TaskRecord? {

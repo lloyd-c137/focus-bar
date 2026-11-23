@@ -175,7 +175,9 @@ final class DomainTests: XCTestCase {
     XCTAssertTrue(
       store.save(TaskDraft(title: "Read", day: today, minuteOfDay: nil, frequency: .daily)))
     let todaysTask = try XCTUnwrap(store.tasks(on: today, today: today).first)
+    let revisionBeforeToggle = store.revision
     store.toggle(todaysTask)
+    XCTAssertGreaterThan(store.revision, revisionBeforeToggle)
     XCTAssertTrue(store.tasks(on: today, today: today).first?.completed == true)
 
     let tomorrow = today.addingDays(1)

@@ -30,16 +30,30 @@ swift test
 
 ## Features
 
-- Today, Tomorrow, and arbitrary local calendar date navigation
-- Create, edit, complete/reopen, reschedule, and delete tasks
+- Native menu bar panel that sizes to its content; the list scrolls only past ~70% of the screen height
+- Today, Tomorrow, and arbitrary date navigation: ‹ / › arrows, a Today button, and a calendar popover on the date
+- Create, rename in place, complete/reopen, reschedule, and delete tasks; deletion can be undone
+- Always-visible quick add field defaults to the viewed date; date, time, and repeat are set from small popovers and shown as removable chips
+- Hover and keyboard selection on rows; an ⓘ button opens a details popover (title, notes, date, time, optional deadline) that saves on close
 - Optional local time and notes; stable ordering for anytime items
-- Optional deadline date (unset by default); recurring deadlines are stored per occurrence
 - Daily and weekly recurrence with per-day completion and exception records
 - Overdue one-time tasks remain on their original date
-- Inline Quick Add defaults to the viewed date; optional date, deadline, time, recurrence, and notes are under Details
 - Today follows local-day changes and refreshes after wake, clock, and time-zone notifications
-- Optional menu bar count, completed-task visibility, and login item setting; Settings opens via the native Settings scene
+- Optional menu bar count (hidden at zero), completed-task visibility, and login item setting
 - English and Simplified Chinese UI strings
+
+### Keyboard
+
+| Keys | Action |
+| --- | --- |
+| ⌘N | Focus the quick add field |
+| ↑ / ↓ | Move the selection |
+| Space | Complete or reopen the selected task |
+| Return | Rename the selected task |
+| Delete | Delete the selected task (undo from the banner or ⌘Z) |
+| ⌘I | Open details for the selected task |
+| ⌘[ / ⌘] / ⌘T | Previous day / next day / today |
+| ⌘, | Settings |
 
 ## Project layout
 
@@ -47,7 +61,7 @@ swift test
 - `Sources/FocusBar/CalendarState.swift`: system calendar lifecycle notifications and badge refresh
 - `Sources/FocusBar/Models.swift`: SwiftData task and recurrence occurrence records
 - `Sources/FocusBar/TaskStore.swift`: local persistence and task commands
-- `Sources/FocusBar/TodayPanel.swift`: menu bar list, date selection, task editing
+- `Sources/FocusBar/TodayPanel.swift`: menu bar panel, list rows, quick add, details popover, keyboard handling
 - `Sources/FocusBar/SettingsView.swift`: local preferences and login item
 - `Tests/FocusBarTests`: date, recurrence, deadline, ordering, and persistence tests (21 tests)
 

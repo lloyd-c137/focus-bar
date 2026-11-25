@@ -34,18 +34,21 @@ import SwiftUI
         StorageFailureView(message: startupError ?? "")
       }
     } label: {
-      HStack(spacing: 4) {
+      // Menu bar labels render a single Text/Image reliably; an inline symbol keeps the count
+      // next to the icon. A zero count is hidden so the item stays a plain icon.
+      if showCount, let count = taskStore?.badgeCount, count > 0 {
+        Text("\(Image(systemName: "checklist")) \(count)")
+          .accessibilityLabel("Focus Bar")
+      } else {
         Image(systemName: "checklist")
-        if showCount { Text("\(taskStore?.badgeCount ?? 0)") }
+          .accessibilityLabel("Focus Bar")
       }
-      .accessibilityLabel("Focus Bar")
     }
     .menuBarExtraStyle(.window)
 
     Settings {
       if let container, let taskStore {
-        SettingsView().modelContainer(container).environment(taskStore).frame(
-          width: 360, height: 220)
+        SettingsView().modelContainer(container).environment(taskStore)
       } else {
         StorageFailureView(message: startupError ?? "").frame(width: 360, height: 220)
       }

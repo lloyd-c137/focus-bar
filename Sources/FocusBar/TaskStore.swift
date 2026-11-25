@@ -169,12 +169,16 @@ import SwiftUI
   }
 
   func moveToTomorrow(_ item: VisibleTask, today: LocalDay) {
+    move(item, to: today.addingDays(1))
+  }
+
+  func move(_ item: VisibleTask, to day: LocalDay) {
     do {
       if item.isRecurring {
         let record = try occurrence(for: item.sourceID, day: item.occurrenceSourceDay)
-        record.rescheduledDayKey = today.addingDays(1).key
+        record.rescheduledDayKey = day == item.occurrenceSourceDay ? nil : day.key
       } else if let task = try task(id: item.sourceID) {
-        task.dayKey = today.addingDays(1).key
+        task.dayKey = day.key
       }
       try context.save()
       error = nil
@@ -205,6 +209,24 @@ import SwiftUI
   func deleteSeries(_ item: VisibleTask) {
     do {
       if let task = try task(id: item.sourceID) { task.deleted = true }
+      try context.save()
+      error = nil
+      tasksDidChange()
+    } catch {
+      context.rollback()
+      self.error = String(localized: "Unable to save. Try again.")
+    }
+  }
+
+  /// Reverses `delete` / `deleteSeries`; both only set soft-delete flags.
+  func restore(_ item: VisibleTask, series: Bool) {
+    do {
+      if item.isRecurring && !series {
+        let record = try occurrence(for: item.sourceID, day: item.occurrenceSourceDay)
+        record.hidden = false
+      } else if let task = try task(id: item.sourceID) {
+        task.deleted = false
+      }
       try context.save()
       error = nil
       tasksDidChange()

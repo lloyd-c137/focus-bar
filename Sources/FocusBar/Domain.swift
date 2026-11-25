@@ -41,17 +41,16 @@ enum TaskFrequency: String, CaseIterable, Identifiable {
 struct TaskDraft {
   var title = ""
   var notes = ""
-  var day: LocalDay
   var minuteOfDay: Int?
   var dueDay: LocalDay? = nil
   var frequency: TaskFrequency = .never
+  var weekdays: Set<Int> = []
 }
 
 struct VisibleTask: Identifiable {
   let id: String
   let title: String
   let notes: String
-  let day: LocalDay
   let dueDay: LocalDay?
   let minuteOfDay: Int?
   let completed: Bool
@@ -61,31 +60,32 @@ struct VisibleTask: Identifiable {
   let sourceID: UUID
   let sortOrder: Int
   let occurrenceDay: LocalDay?
-  let movedFromDay: LocalDay?
-  var occurrenceSourceDay: LocalDay { occurrenceDay ?? day }
+  var occurrenceSourceDay: LocalDay { occurrenceDay ?? LocalDay(.now) }
 }
 
-struct DaySections {
+struct TaskSections {
   let overdue: [VisibleTask]
   let scheduled: [VisibleTask]
   let anytime: [VisibleTask]
   let completed: [VisibleTask]
+  var hasOpen: Bool { !(overdue.isEmpty && scheduled.isEmpty && anytime.isEmpty) }
 }
 
-func daySections(tasks: [VisibleTask], selected: LocalDay, today: LocalDay) -> DaySections {
+func taskSections(tasks: [VisibleTask]) -> TaskSections {
   let overdue = tasks.filter { $0.overdue && !$0.completed }
     .sorted {
-      if $0.day != $1.day { return $0.day < $1.day }
+      if $0.dueDay != $1.dueDay {
+        return ($0.dueDay?.key ?? "") < ($1.dueDay?.key ?? "")
+      }
       if $0.sortOrder != $1.sortOrder { return $0.sortOrder < $1.sortOrder }
       return $0.id < $1.id
     }
-  let current = tasks.filter { !$0.overdue && ($0.day == selected || $0.completed) }
-  let completed = current.filter(\.completed).sorted {
+  let completed = tasks.filter(\.completed).sorted {
     ($0.completedAt ?? .distantPast) == ($1.completedAt ?? .distantPast)
       ? ($0.sortOrder == $1.sortOrder ? $0.id < $1.id : $0.sortOrder > $1.sortOrder)
       : ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast)
   }
-  let open = current.filter { !$0.completed }
+  let open = tasks.filter { !$0.completed && !$0.overdue }
   let scheduled = open.filter { $0.minuteOfDay != nil }.sorted {
     if $0.minuteOfDay != $1.minuteOfDay { return $0.minuteOfDay! < $1.minuteOfDay! }
     if $0.sortOrder != $1.sortOrder { return $0.sortOrder < $1.sortOrder }
@@ -94,9 +94,8 @@ func daySections(tasks: [VisibleTask], selected: LocalDay, today: LocalDay) -> D
   let anytime = open.filter { $0.minuteOfDay == nil }.sorted {
     $0.sortOrder == $1.sortOrder ? $0.id < $1.id : $0.sortOrder < $1.sortOrder
   }
-  return DaySections(
-    overdue: selected == today ? overdue : [], scheduled: scheduled, anytime: anytime,
-    completed: completed)
+  return TaskSections(
+    overdue: overdue, scheduled: scheduled, anytime: anytime, completed: completed)
 }
 
 func formatMinuteOfDay(_ minute: Int, locale: Locale = .current) -> String {
@@ -107,17 +106,22 @@ func formatMinuteOfDay(_ minute: Int, locale: Locale = .current) -> String {
   return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(minute * 60)))
 }
 
-func recurrenceMatches(
-  frequency: TaskFrequency, start: LocalDay, date: LocalDay, weekdays: Set<Int>
-) -> Bool {
-  guard date >= start else { return false }
+func recurrenceMatches(frequency: TaskFrequency, date: LocalDay, weekdays: Set<Int>) -> Bool {
   switch frequency {
-  case .never: return date == start
+  case .never: return false
   case .daily: return true
   case .weekly:
     let weekday = Calendar.current.component(.weekday, from: date.date)
     return weekdays.contains(weekday)
   }
+}
+
+func nextOccurrenceDay(
+  frequency: TaskFrequency, from day: LocalDay, weekdays: Set<Int>
+) -> LocalDay {
+  (0...7).map { day.addingDays($0) }.first {
+    recurrenceMatches(frequency: frequency, date: $0, weekdays: weekdays)
+  } ?? day
 }
 
 struct LocalDayContext: Equatable {
@@ -136,24 +140,6 @@ struct LocalDayContext: Equatable {
     calendar.timeZone = timeZone
     today = LocalDay(now, calendar: calendar)
     timeZoneIdentifier = timeZone.identifier
-  }
-}
-
-struct DateNavigationState: Equatable {
-  private(set) var pinnedDay: LocalDay?
-
-  var followsToday: Bool { pinnedDay == nil }
-
-  func displayedDay(today: LocalDay) -> LocalDay {
-    pinnedDay ?? today
-  }
-
-  mutating func select(_ day: LocalDay, today: LocalDay) {
-    pinnedDay = day == today ? nil : day
-  }
-
-  mutating func returnToToday() {
-    pinnedDay = nil
   }
 }
 

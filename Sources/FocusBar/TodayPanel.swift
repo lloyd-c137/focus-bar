@@ -11,8 +11,6 @@ struct TodayPanel: View {
   @Environment(TaskStore.self) private var store
   @Environment(CalendarState.self) private var calendarState
 
-  @State private var navigation = DateNavigationState()
-  @State private var showCalendar = false
   @State private var completedExpanded = false
   /// Tasks that were just checked off stay in place briefly before moving to Completed.
   @State private var lingering: Set<String> = []
@@ -25,8 +23,7 @@ struct TodayPanel: View {
   @State private var editText = ""
   @State private var inspectingID: String?
 
-  @State private var draft = TaskDraft(day: LocalDay(.now))
-  @State private var draftDayPinned = false
+  @State private var draft = TaskDraft()
   @State private var isSubmitting = false
 
   @State private var contentHeight: CGFloat = 0
@@ -34,7 +31,6 @@ struct TodayPanel: View {
   @State private var toast: PanelToast?
 
   private var today: LocalDay { calendarState.dateContext.today }
-  private var selected: LocalDay { navigation.displayedDay(today: today) }
   private var motion: Animation? { reduceMotion ? nil : .easeOut(duration: 0.18) }
 
   var body: some View {
@@ -45,7 +41,11 @@ struct TodayPanel: View {
       ScrollViewReader { proxy in
         ScrollView {
           list(sections)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+            .onGeometryChange(for: CGFloat.self) {
+              $0.size.height
+            } action: {
+              contentHeight = $0
+            }
         }
         .scrollBounceBehavior(.basedOnSize)
         .frame(height: max(1, min(contentHeight, maxListHeight)))
@@ -63,12 +63,6 @@ struct TodayPanel: View {
       calendarState.refresh()
       let screen = NSScreen.main ?? NSScreen.screens.first
       maxListHeight = max(200, (screen?.visibleFrame.height ?? 800) * 0.7 - 120)
-      if !draftDayPinned { draft.day = selected }
-    }
-    .onChange(of: selected) { _, day in
-      if !draftDayPinned { draft.day = day }
-      selectedID = nil
-      editingID = nil
     }
     .onChange(of: store.error) { _, message in
       guard let message else { return }
@@ -89,116 +83,42 @@ struct TodayPanel: View {
   // MARK: Header
 
   private var header: some View {
-    HStack(spacing: 6) {
-      Button {
-        showCalendar.toggle()
+    HStack {
+      Text(String(localized: "Tasks")).font(.headline).foregroundStyle(.primary)
+      Spacer()
+      Menu {
+        Toggle(String(localized: "Show completed tasks"), isOn: $showCompleted)
+        Divider()
+        Button(String(localized: "Settings…"), action: showSettings)
+          .keyboardShortcut(",")
+        Button(String(localized: "Quit Focus Bar")) { NSApp.terminate(nil) }
+          .keyboardShortcut("q")
       } label: {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-          Text(dayTitle(selected)).font(.headline).foregroundStyle(.primary)
-          Text(headerSubtitle).font(.subheadline).foregroundStyle(.secondary)
-          Image(systemName: "chevron.down")
-            .font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
-        }
-        .contentShape(Rectangle())
+        Image(systemName: "ellipsis.circle")
       }
-      .buttonStyle(.plain)
-      .help(String(localized: "Choose a date"))
-      .popover(isPresented: $showCalendar, arrowEdge: .bottom) {
-        DatePicker(
-          String(localized: "Choose a date"),
-          selection: Binding(
-            get: { selected.date },
-            set: {
-              select(LocalDay($0))
-              showCalendar = false
-            }),
-          displayedComponents: .date
-        )
-        .datePickerStyle(.graphical).labelsHidden().padding(10)
-      }
-
-      Spacer(minLength: 4)
-
-      HStack(spacing: 0) {
-        PanelIconButton(systemImage: "chevron.left", help: String(localized: "Previous Day")) {
-          select(selected.addingDays(-1))
-        }
-        Button(String(localized: "Today")) { navigation.returnToToday() }
-          .buttonStyle(HoverButtonStyle())
-          .font(.callout)
-          .disabled(navigation.followsToday)
-        PanelIconButton(systemImage: "chevron.right", help: String(localized: "Next Day")) {
-          select(selected.addingDays(1))
-        }
-        Menu {
-          Toggle(String(localized: "Show completed tasks"), isOn: $showCompleted)
-          Divider()
-          Button(String(localized: "Settings…"), action: showSettings)
-            .keyboardShortcut(",")
-          Button(String(localized: "Quit Focus Bar")) { NSApp.terminate(nil) }
-            .keyboardShortcut("q")
-        } label: {
-          Image(systemName: "ellipsis.circle")
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .padding(.leading, 6)
-        .help(String(localized: "More"))
-      }
+      .menuStyle(.borderlessButton)
+      .menuIndicator(.hidden)
+      .fixedSize()
+      .help(String(localized: "More"))
     }
     .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 6)
   }
 
-  private func dayTitle(_ day: LocalDay) -> String {
-    if day == today { return String(localized: "Today") }
-    if day == today.addingDays(1) { return String(localized: "Tomorrow") }
-    if day == today.addingDays(-1) { return String(localized: "Yesterday") }
-    return day.date.formatted(.dateTime.month(.abbreviated).day())
-  }
-
-  private var headerSubtitle: String {
-    let date = selected.date
-    let isRelative =
-      selected == today || selected == today.addingDays(1) || selected == today.addingDays(-1)
-    let otherYear = selected.key.prefix(4) != today.key.prefix(4)
-    if isRelative {
-      return date.formatted(.dateTime.month(.abbreviated).day().weekday(.abbreviated))
-    }
-    return otherYear
-      ? date.formatted(.dateTime.weekday(.abbreviated).year())
-      : date.formatted(.dateTime.weekday(.wide))
-  }
-
-  private func select(_ day: LocalDay) {
-    navigation.select(day, today: today)
-  }
-
   // MARK: List
 
-  private struct Sections {
-    var overdue: [VisibleTask]
-    var scheduled: [VisibleTask]
-    var anytime: [VisibleTask]
-    var completed: [VisibleTask]
-    var hasOpen: Bool { !(overdue.isEmpty && scheduled.isEmpty && anytime.isEmpty) }
-  }
-
-  private var visibleSections: Sections {
-    let tasks = store.tasks(on: selected, today: today).map {
+  private var visibleSections: TaskSections {
+    let tasks = store.tasks(today: today).map {
       $0.completed && lingering.contains($0.id) ? $0.reopenedCopy : $0
     }
-    let s = daySections(tasks: tasks, selected: selected, today: today)
-    return Sections(
-      overdue: s.overdue, scheduled: s.scheduled, anytime: s.anytime, completed: s.completed)
+    return taskSections(tasks: tasks)
   }
 
-  private func flatOrder(_ s: Sections) -> [VisibleTask] {
+  private func flatOrder(_ s: TaskSections) -> [VisibleTask] {
     s.overdue + s.scheduled + s.anytime
       + (showCompleted && completedExpanded ? s.completed : [])
   }
 
-  private func list(_ s: Sections) -> some View {
+  private func list(_ s: TaskSections) -> some View {
     let openGroups = [s.overdue, s.scheduled, s.anytime].filter { !$0.isEmpty }.count
     let showHeaders = openGroups > 1
     return VStack(alignment: .leading, spacing: 8) {
@@ -208,7 +128,7 @@ struct TodayPanel: View {
       group(
         String(localized: "Overdue"), tint: .red, tasks: s.overdue, showsHeader: true)
       group(
-        String(localized: "Scheduled"), tasks: s.scheduled, showsHeader: showHeaders)
+        String(localized: "Timed"), tasks: s.scheduled, showsHeader: showHeaders)
       group(
         String(localized: "Anytime"), tasks: s.anytime, showsHeader: showHeaders)
       if showCompleted && !s.completed.isEmpty {
@@ -284,17 +204,10 @@ struct TodayPanel: View {
   }
 
   private func emptyState(allDone: Bool) -> some View {
-    let message: String
-    if allDone {
-      message =
-        selected == today
-        ? String(localized: "All done for today.") : String(localized: "All done for this day.")
-    } else {
-      message =
-        selected == today
-        ? String(localized: "Nothing scheduled for today.")
-        : String(localized: "No items for this day.")
-    }
+    let message =
+      allDone
+      ? String(localized: "All tasks completed.")
+      : String(localized: "No tasks yet. Add one below.")
     return VStack(spacing: 6) {
       Image(systemName: allDone ? "checkmark.circle" : "checklist")
         .font(.system(size: 24, weight: .light))
@@ -345,17 +258,6 @@ struct TodayPanel: View {
       inspectingID = item.id
     }
     Button(String(localized: "Rename"), systemImage: "pencil") { beginEdit(item) }
-    Divider()
-    if item.day != today || item.overdue {
-      Button(String(localized: "Move to Today"), systemImage: "arrow.uturn.backward") {
-        store.move(item, to: today)
-      }
-    }
-    if item.day != today.addingDays(1) {
-      Button(String(localized: "Move to Tomorrow"), systemImage: "arrow.right") {
-        store.move(item, to: today.addingDays(1))
-      }
-    }
     Divider()
     if item.isRecurring {
       Menu(String(localized: "Delete")) {
@@ -441,7 +343,7 @@ struct TodayPanel: View {
     defer { listFocused = true }
     let title = editText.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !title.isEmpty,
-      let item = store.tasks(on: selected, today: today).first(where: { $0.id == id }),
+      let item = store.tasks(today: today).first(where: { $0.id == id }),
       title != item.title
     else { return }
     var updated = item.draft
@@ -482,32 +384,25 @@ struct TodayPanel: View {
           }
           .padding(.leading, 2)
         FieldPopoverButton(
-          systemImage: "calendar", isActive: draft.day != selected,
-          help: String(localized: "Date")
+          systemImage: "calendar", isActive: draft.dueDay != nil,
+          help: String(localized: "Deadline")
         ) { presented in
           VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-              Button(String(localized: "Today")) {
-                setDraftDay(today)
-                presented.wrappedValue = false
-              }
-              Button(String(localized: "Tomorrow")) {
-                setDraftDay(today.addingDays(1))
-                presented.wrappedValue = false
-              }
-            }
-            .controlSize(.small)
             DatePicker(
-              String(localized: "Date"),
+              String(localized: "Deadline"),
               selection: Binding(
-                get: { draft.day.date },
-                set: {
-                  setDraftDay(LocalDay($0))
-                  presented.wrappedValue = false
-                }),
+                get: { draft.dueDay?.date ?? LocalDay(.now).date },
+                set: { draft.dueDay = LocalDay($0) }),
               displayedComponents: .date
             )
             .datePickerStyle(.graphical).labelsHidden()
+            if draft.dueDay != nil {
+              Button(String(localized: "Clear")) {
+                draft.dueDay = nil
+                presented.wrappedValue = false
+              }
+              .controlSize(.small)
+            }
           }
           .padding(10)
         }
@@ -519,7 +414,7 @@ struct TodayPanel: View {
             DatePicker(
               String(localized: "Time"),
               selection: Binding(
-                get: { dateForMinute(draft.minuteOfDay ?? nextHourMinute(), on: draft.day) },
+                get: { dateForMinute(draft.minuteOfDay ?? nextHourMinute()) },
                 set: { draft.minuteOfDay = minuteOfDay(from: $0) }),
               displayedComponents: .hourAndMinute
             )
@@ -541,6 +436,21 @@ struct TodayPanel: View {
           }
           .pickerStyle(.inline)
           .labelsHidden()
+          if draft.frequency == .weekly {
+            Picker(
+              String(localized: "Repeat on"),
+              selection: Binding(
+                get: {
+                  draft.weekdays.first ?? Calendar.current.component(.weekday, from: .now)
+                },
+                set: { draft.weekdays = [$0] })
+            ) {
+              ForEach(1...7, id: \.self) { weekday in
+                Text(Calendar.current.weekdaySymbols[weekday - 1]).tag(weekday)
+              }
+            }
+            .pickerStyle(.inline)
+          }
         } label: {
           Image(systemName: "repeat")
         }
@@ -551,13 +461,13 @@ struct TodayPanel: View {
         .help(String(localized: "Repeat"))
         .accessibilityLabel(String(localized: "Repeat"))
       }
-      if draft.day != selected || draft.minuteOfDay != nil || draft.frequency != .never {
+      if draft.dueDay != nil || draft.minuteOfDay != nil || draft.frequency != .never {
         HStack(spacing: 6) {
-          if draft.day != selected {
-            FieldChip(text: dayTitle(draft.day), systemImage: "calendar") {
-              draft.day = selected
-              draftDayPinned = false
-            }
+          if let dueDay = draft.dueDay {
+            FieldChip(
+              text: String(format: String(localized: "Due %@"), shortDate(dueDay)),
+              systemImage: "calendar"
+            ) { draft.dueDay = nil }
           }
           if let minute = draft.minuteOfDay {
             FieldChip(text: formatMinuteOfDay(minute), systemImage: "clock") {
@@ -565,7 +475,7 @@ struct TodayPanel: View {
             }
           }
           if draft.frequency != .never {
-            FieldChip(text: draft.frequency.label, systemImage: "repeat") {
+            FieldChip(text: repeatSummary(for: draft), systemImage: "repeat") {
               draft.frequency = .never
             }
           }
@@ -575,18 +485,13 @@ struct TodayPanel: View {
       }
     }
     .padding(.horizontal, 12).padding(.vertical, 10)
+    .animation(motion, value: draft.dueDay)
     .animation(motion, value: draft.minuteOfDay)
     .animation(motion, value: draft.frequency)
   }
 
-  private func setDraftDay(_ day: LocalDay) {
-    draft.day = day
-    draftDayPinned = day != selected
-  }
-
   private func resetDraft() {
-    draft = TaskDraft(day: selected)
-    draftDayPinned = false
+    draft = TaskDraft()
   }
 
   private func submitQuickAdd() {
@@ -596,16 +501,16 @@ struct TodayPanel: View {
     else { return }
     isSubmitting = true
     defer { isSubmitting = false }
-    let targetDay = draft.day
     guard store.save(draft) else { return }
     resetDraft()
     addFocused = true
-    if targetDay != selected {
-      show(
-        PanelToast(
-          message: String(format: String(localized: "Added to %@"), dayTitle(targetDay)),
-          isError: false))
-    }
+  }
+
+  private func repeatSummary(for draft: TaskDraft) -> String {
+    guard draft.frequency == .weekly else { return draft.frequency.label }
+    let weekday = draft.weekdays.first ?? Calendar.current.component(.weekday, from: .now)
+    let name = Calendar.current.weekdaySymbols[weekday - 1]
+    return String(format: String(localized: "Weekly on %@"), name)
   }
 
   // MARK: Feedback & shortcuts
@@ -657,9 +562,6 @@ struct TodayPanel: View {
         if let selectedID { inspectingID = selectedID }
       }
       .keyboardShortcut("i")
-      Button("") { select(selected.addingDays(-1)) }.keyboardShortcut("[")
-      Button("") { select(selected.addingDays(1)) }.keyboardShortcut("]")
-      Button("") { navigation.returnToToday() }.keyboardShortcut("t")
       Button("", action: showSettings).keyboardShortcut(",")
       Button("") {
         if let toast, let item = toast.deleted { undoDelete(item, series: toast.series) }
@@ -768,17 +670,13 @@ private struct TaskRowView: View {
 
   private var metaText: Text? {
     var parts: [Text] = []
-    if item.overdue {
-      parts.append(Text(shortDate(item.day)).foregroundStyle(.red))
-    }
     if item.isRecurring {
       parts.append(Text(Image(systemName: "repeat")))
     }
-    if let moved = item.movedFromDay {
-      parts.append(Text(String(format: String(localized: "Moved from %@"), shortDate(moved))))
-    }
     if let due = item.dueDay {
-      parts.append(Text(String(format: String(localized: "Due %@"), shortDate(due))))
+      parts.append(
+        Text(String(format: String(localized: "Due %@"), shortDate(due)))
+          .foregroundStyle(item.overdue ? Color.red : Color.secondary))
     }
     if let note = item.notes.split(whereSeparator: \.isNewline).first {
       parts.append(Text(String(note)))
@@ -862,17 +760,13 @@ private struct TaskInspector: View {
         .onSubmit { dismiss() }
       TextField(String(localized: "Notes"), text: $draft.notes, axis: .vertical)
         .lineLimit(2...5)
-      DatePicker(
-        String(localized: "Date"),
-        selection: Binding(get: { draft.day.date }, set: { draft.day = LocalDay($0) }),
-        displayedComponents: .date)
       LabeledContent(String(localized: "Time")) {
         HStack(spacing: 6) {
           if let minute = draft.minuteOfDay {
             DatePicker(
               String(localized: "Time"),
               selection: Binding(
-                get: { dateForMinute(minute, on: draft.day) },
+                get: { dateForMinute(minute) },
                 set: { draft.minuteOfDay = minuteOfDay(from: $0) }),
               displayedComponents: .hourAndMinute
             )
@@ -901,13 +795,13 @@ private struct TaskInspector: View {
             String(localized: "Set a deadline"),
             isOn: Binding(
               get: { draft.dueDay != nil },
-              set: { draft.dueDay = $0 ? (draft.dueDay ?? draft.day) : nil })
+              set: { draft.dueDay = $0 ? (draft.dueDay ?? LocalDay(.now)) : nil })
           )
           .toggleStyle(.switch).controlSize(.mini).labelsHidden()
         }
       }
       if item.isRecurring {
-        Text(String(localized: "Changes apply to this day only."))
+        Text(String(localized: "Changes apply to this occurrence only."))
           .font(.caption).foregroundStyle(.secondary)
       }
     }
@@ -924,30 +818,13 @@ private struct TaskInspector: View {
     guard !edited.title.isEmpty else { return }
     let changed =
       edited.title != original.title || edited.notes != original.notes
-      || edited.day != original.day || edited.minuteOfDay != original.minuteOfDay
+      || edited.minuteOfDay != original.minuteOfDay
       || edited.dueDay != original.dueDay
     if changed { _ = onSave(edited) }
   }
 }
 
 // MARK: - Small controls
-
-private struct PanelIconButton: View {
-  let systemImage: String
-  let help: String
-  let action: () -> Void
-
-  var body: some View {
-    Button(action: action) {
-      Image(systemName: systemImage)
-        .font(.system(size: 12, weight: .semibold))
-        .frame(width: 18, height: 22)
-    }
-    .buttonStyle(HoverButtonStyle())
-    .help(help)
-    .accessibilityLabel(help)
-  }
-}
 
 /// Borderless button with the subtle hover/pressed background used by system menu bar panels.
 private struct HoverButtonStyle: ButtonStyle {
@@ -1034,15 +911,14 @@ private struct FieldChip: View {
 extension VisibleTask {
   fileprivate var reopenedCopy: VisibleTask {
     VisibleTask(
-      id: id, title: title, notes: notes, day: day, dueDay: dueDay, minuteOfDay: minuteOfDay,
+      id: id, title: title, notes: notes, dueDay: dueDay, minuteOfDay: minuteOfDay,
       completed: false, completedAt: nil, overdue: overdue, isRecurring: isRecurring,
-      sourceID: sourceID, sortOrder: sortOrder, occurrenceDay: occurrenceDay,
-      movedFromDay: movedFromDay)
+      sourceID: sourceID, sortOrder: sortOrder, occurrenceDay: occurrenceDay)
   }
 
   fileprivate var draft: TaskDraft {
     TaskDraft(
-      title: title, notes: notes, day: day, minuteOfDay: minuteOfDay, dueDay: dueDay,
+      title: title, notes: notes, minuteOfDay: minuteOfDay, dueDay: dueDay,
       frequency: .never)
   }
 }
@@ -1051,8 +927,9 @@ private func shortDate(_ day: LocalDay) -> String {
   day.date.formatted(.dateTime.month(.abbreviated).day())
 }
 
-private func dateForMinute(_ minute: Int, on day: LocalDay) -> Date {
-  Calendar.current.date(
+private func dateForMinute(_ minute: Int) -> Date {
+  let day = LocalDay(.now)
+  return Calendar.current.date(
     bySettingHour: minute / 60, minute: minute % 60, second: 0, of: day.date) ?? day.date
 }
 

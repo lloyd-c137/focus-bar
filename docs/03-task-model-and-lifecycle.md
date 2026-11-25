@@ -1,93 +1,59 @@
-# 03 · 数据模型与任务生命周期（V1 手动版）
+# 03 · 数据模型与任务生命周期
 
-本版没有 AI 候选池、外部 SourceRecord、GitHub 数据模型或外部同步冲突。唯一任务来源是用户本人输入，所有记录本地存储。
+本版事项没有计划日期。日期仅用于显式 DDL、重复规则的星期判断和 occurrence 身份。
 
-## 1. 核心模型
+## 1. Task
 
-### Task
 ```text
 id: UUID
-title: String                       // 必填，trim 后非空
-notes: String?                      // 可选
-scheduledDate: LocalDate            // YYYY-MM-DD 语义；默认当前所查看日期
-scheduledTime: LocalTime?           // HH:mm，可空
-dueDate: LocalDate?                 // 可选 DDL；默认 nil，与计划日期独立
-status: open | completed            // 用户明确勾选
-createdAt: Date
-updatedAt: Date
-completedAt: Date?
-sortOrder: Int                      // 同时间/无时间稳定排序
-seriesID: UUID?                     // 重复事项关联
-isDeleted: Bool                     // 或软删除模型，用于 Undo
+ title: String                   // trim 后非空
+ notes: String                   // 可选
+ dueDate: LocalDate?             // 可选 DDL，默认 nil
+ time: LocalTime?                // 可选时刻，不附着某一天
+ frequency: never | daily | weekly
+ weekdays: Set<Weekday>         // weekly 规则
+ status: open | completed
+ createdAt: Date
+ completedAt: Date?
+ sortOrder: Int
+ isDeleted: Bool
 ```
 
-这里的 LocalDate / LocalTime 是领域层概念；SwiftData 中可以用独立年月日数字字段、或提供安全转换的编码字段。**不要直接存 UTC 午夜 Date 作为用户选定日期的唯一真相**，否则跨时区可能移到前一天。
+不要添加 scheduledDate、日期导航状态或基于创建日期的逾期判定。SwiftData 旧版任务中的 `dayKey` 只为读取既有 Store 保留，不能用于 UI、查询、排序或任务状态。
 
-### RecurrenceRule
-```text
-id: UUID
-titleTemplate: String
-notesTemplate: String?
-startDate: LocalDate
-time: LocalTime?
-frequency: none | daily | weekly
-weekdays: Set<Weekday>?             // weekly，按选定星期
-endDate: LocalDate?                 // 可空
-isEnabled: Bool
-createdAt: Date
-updatedAt: Date
-```
+## 2. Recurrence / Occurrence
 
-重复规则生成按日 **occurrence**，通过 `seriesID + localDate` 唯一键避免多次刷新重复。完成/跳过状态与可选 DDL 按 occurrence 单独保存。V1 默认编辑当前实例；若提供“编辑此系列”必须明确确认作用范围。
+重复规则由频率、星期和创建时间确定。`OccurrenceRecord` 使用 `seriesID + localDate` 唯一标识当天实例，用于独立完成、删除和字段覆盖。Occurrence 日期是内部状态键，不是用户可编辑的计划日期。
 
-### CompletionRecord / OccurrenceOverride
-对重复事项记录 `seriesID, occurrenceDate, completedAt?, hidden?, overrideTitle?, overrideTime?`；不因次日进入新日将昨天状态沿用。生成可视 occurrence 可以采用按需虚拟展开 + 独立覆盖记录，避免一次创建无限任务。
+重复 DDL 仅属于对应 occurrence。重复系列的后续实例不会继承当前实例的 DDL。
 
-### Preferences
-`showMenuBarCount`、`launchAtLogin`、`showCompleted`、`defaultDateView`、`useSystemAppearance`。
+旧版 occurrence 中的 `rescheduledDayKey` 只为 Store 兼容保留，不再生成或筛选任何任务。
 
-## 2. 任务生命周期
+## 3. 生命周期
 
 ```text
 Create → Open → Completed ⇄ Reopened
-                 ↓
-             Delete (with Undo/confirmation)
-Open → Rescheduled → Open (new scheduled date)
+Open → Overdue view (only explicit dueDate < local today)
+Open → Delete (undo)
+Recurring Rule → Today's matching occurrence → Completed / Deleted
 ```
 
-- 所有完成都由用户勾选；无自动完成。
-- 已完成单次事项不会出现在 Overdue。
-- 单次未完成事项跨日后出现在 Today 的 Overdue，仍保留原始 scheduledDate。
-- “移动到明天”是用户明确改动 scheduledDate，不会制造第二条重复任务。
-- 删除要有 Undo 或确认，防止误触后永久丢失。建议可以选择软删除和归档恢复策略。
-- 重复规则按 occurrence 独立完成；修改规则后，用户手动覆盖/完成的历史记录不应该丢失。
+- 无 DDL 的单次事项持续显示，不会随时间自动逾期。
+- 设置 DDL 且日期早于今天的未完成事项进入 Overdue。
+- 完成的事项进入 Completed，不在 Overdue 中重复显示。
+- 不提供按日期改期，因为事项没有计划日期。
+- 每日/每周实例状态互不影响；不累积历史漏做实例。
 
-## 3. 展示查询
+## 4. 查询规则
 
-选中日期 D 时：
-1. 选中日期的未完成非重复 Task。
-2. 按规则匹配 D 的未完成重复 occurrence（扣除例外）。
-3. 如果 D 为 Today，额外展示 `scheduledDate < Today` 的未完成单次任务于 Overdue。查看其他日期默认不混入 Today Overdue。
-4. 选中日期已完成事项折叠显示。
-5. 排序：Overdue 按原日期升序；当日有时间事项按时刻升序；无时间事项按 sortOrder/createdAt；已完成按完成时间倒序。
-6. 任务数量没有 3 件等上限；长清单滚动。
+1. 载入所有未删除的单次事项，不根据旧版 `dayKey` 过滤。
+2. 按本地当前日期生成匹配的重复 occurrence。
+3. 仅当 `dueDate < today && status == open` 时标记 Overdue。
+4. Overdue 按截止日期排序；未逾期有时刻事项按时刻排序；Anytime 按稳定顺序排列。
+5. 已完成事项折叠显示，单次事项可在 Completed 中撤销。
 
-## 4. 日期与时区
+## 5. 本地日期
 
-- 计划日期作为用户选择的 **calendar date** 存储，不随系统时区变化而意外改日。
-- 具体时间是用户选择的该日当地墙上时间，V1 只做清单显示，不为 DST 缺失/重复时刻自动发送提醒；若时间无效需标注并要求用户确认。
-- Today 由系统当前 Calendar 和 TimeZone 获取，检测日期变更/唤醒并刷新查询。
-- 系统时间改动可能改变“今日”和“逾期”的判断，但不修改源任务日期。
-- 12/24 小时显示尊重系统 Locale。
-
-## 5. 数据一致性
-
-- 同一任务每次打开只有同一个 UUID。
-- 重复 occurrence 的唯一键保证幂等，不重复生成。
-- 完成/撤销操作跨重启不丢失。
-- 一次事务更新任务与对应重复 occurrence 状态。
-- 修改编辑状态时不丢输入；SQLite/SwiftData 错误则明确呈现，不能假成功。
-- 数据模型升级要有 migration plan 和旧版本迁移测试。
-- 本地完全离线，无外部数据来源冲突或 AI 生成结果覆盖用户操作。
-
-相关：[显示规则](04-planning-engine.md) · [测试](07-delivery-and-acceptance.md)
+- 本地日历日期只用于 DDL 比较、周几匹配和 occurrence 键。
+- 不把 UTC 午夜作为用户选择日期的唯一真相。
+- 日历日、系统时区、睡眠唤醒变化后刷新逾期状态、重复实例和菜单栏计数。

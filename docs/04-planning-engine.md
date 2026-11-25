@@ -1,86 +1,68 @@
-# 04 · 纯本地今日清单规则（无 AI）
+# 04 · 本地清单与重复规则
 
-> 原文档为 AI Planning Engine 设计。依据 2026-11-22 最新产品决定，V1 **不使用任何 AI、任务推理或外部数据集成**。此路径保留，内容改为确定性的本地列表规则，避免已有链接失效。
+Focus Bar 不再有计划日期。它只保存用户输入的事项、可选 DDL、时刻、重复规则和完成状态。
 
-## 1. 今日列表的唯一依据
+## 1. 展示依据
 
-- 用户手动创建的事项及其安排日期、可选时间。
-- 用户手动设置的每日/每周重复规则。
-- 用户亲自勾选的完成状态。
-- 系统当前本地日期、时区、语言与显示偏好。
+- 用户手动创建的所有未完成单次事项。
+- 用户明确设置的 DDL。只有 DDL 早于本地今天时才归入 Overdue。
+- 当前日期符合规则的每日/每周 occurrence。
+- 用户明确设置的时刻和重复星期。
 
-**不能**根据 GitHub、Calendar、邮件、系统屏幕或其他未经用户输入的数据生成任务。
-
-## 2. 数据流
+## 2. 查询与分组
 
 ```text
-User input (+ / edit / complete / repeat)
+Fetch active tasks
     ↓
-Validate title + date/time
+Generate today's matching recurrence occurrences
     ↓
-Save to SwiftData (transaction)
+Mark overdue only when dueDate < today and task is incomplete
     ↓
-Select queried local date
+Sort overdue by dueDate, timed tasks by time, anytime by stable order
     ↓
-Expand matching recurrence occurrences
-    ↓
-Filter open/completed + compute overdue
-    ↓
-Deterministic sort
-    ↓
-Render Today's list
+Show completed items in a collapsible section
 ```
 
-这个流程不需要网络、后台云任务、模型、评分器或“推荐理由”。
+分组顺序：
+1. **Overdue**：DDL 已过且未完成。没有 DDL 的事项永不进入此组。
+2. **Scheduled**：有时刻、尚未逾期的未完成事项。
+3. **Anytime**：没有时刻、尚未逾期的未完成事项。
+4. **Completed**：已完成事项，按完成时间倒序。
 
-## 3. 分组
+空分组不显示标题。没有事项时显示空状态。
 
-1. **Overdue**：Today 视图中日期已过去、仍未完成的非重复事项；不偷偷挪到今天。以后是否将过期的重复 occurrence 带入 Overdue 需单独决定，V1 默认**不累积**每日/每周重复的历史漏做实例，防止习惯型任务产生无限旧账。
-2. **Scheduled**：所选日期有具体时间的事项，按时间升序。
-3. **Anytime**：所选日期没有时间的事项，按用户排序字段（若尚未支持手排则按稳定创建顺序）。
-4. **Completed**：所选日期已完成的事项，默认折叠，可展开并撤销。
+## 3. 新增默认值
 
-空组不显示标题；没有任务展示无压力的空状态。
+- 标题必填。
+- DDL 默认不设置。
+- 时刻默认不设置。
+- 重复默认关闭。
+- 每周重复需要显式选择星期；未指定时使用创建当天的星期。
+- 不存在计划日期默认值。
 
-## 4. 创建时的默认值
+## 4. 重复事项
 
-- 在 Today：日期默认 Today。
-- 在 Tomorrow：日期默认 Tomorrow。
-- 在指定日期：日期默认当前查看日。
-- 时间默认为 **不设置**；只有用户明确选择才写入。
-- 重复默认为 **不重复**。
-- 没有默认强制截止时间、没有智能推断和优先级打分。
+- `daily`：从创建后按日生成一个 occurrence。
+- `weekly`：在选择的星期生成 occurrence。
+- 完成、删除和单次编辑作用于对应 occurrence；系列仍继续运行。
+- occurrence 唯一键由 `seriesID + localDate` 组成，防止重复生成。
+- 重复任务的 DDL 只保存到对应 occurrence。
+- 不累积漏做的旧 occurrence；面板只显示当前日期匹配的实例。
 
-## 5. 日期跳转与保存
+## 5. 日期与持久化
 
-- 点击 Today 标题：跳转回当前本地日期。
-- 日期菜单快速选择 Today、Tomorrow 或指定日期。
-- 切换查看日期不等于修改任何任务。
-- 新增/编辑后立即本地持久化，在视图中按规则更新。
-- 跨午夜和睡眠唤醒后重新判断 Today；已打开的指定日期视图保持用户选中的日期，除非用户显式回到 Today（可在偏好中配置回到今日的行为）。
-- 不做自动重排、自动延期、自动添加。
+- 本地日期只用于 DDL 比较、每周规则以及 occurrence 身份，不作为单次事项的计划日。
+- 使用本地年月日语义，避免 UTC 午夜和时区变化造成日期偏移。
+- 系统日期、时区变化和唤醒后重新计算 Overdue、当前重复实例与菜单栏计数。
+- 旧 SwiftData 记录中的计划日期作为兼容数据保留，但不参与查询、排序、分组或编辑。
 
-## 6. 重复事项规则
+## 6. 基础验收
 
-- `daily`：从 startDate 起每天一个可视 occurrence。
-- `weekly`：从 startDate 起在选择的星期几生成可视 occurrence。
-- 每次查询按当前日期范围计算；只持久化已交互实例的覆盖状态即可。
-- 当前实例完成不会完成下个实例。
-- 删除重复实例时可以选择“仅本次”或“整个系列”；提供明确提示，不得误删历史。
-- 默认不把漏做的 Routine occurrence 全部累积进 Today Overdue。
-- 需要对 DST/跨时区变化有确定规则，不能把计划日期当作 UTC 日期。
-
-## 7. 基础测试
-
-1. 今天新建无时间任务，立刻出现在 Anytime。
-2. 明天新建 10:00 任务，只在 Tomorrow 视图的 Scheduled 出现。
-3. 同日 09:00 / 17:00 任务按时序显示，时分按系统区域设置格式化。
-4. 昨日未完成单次任务在 Today 的 Overdue 出现，但原计划仍显示昨日。
-5. 昨日完成单次任务不出现在 Today 的 Overdue。
-6. 每日重复事项今天完成后，明天仍是未完成。
-7. 每天重开面板不重复生成 occurrence。
-8. 手动改期至后天后，今天和明天都不出现。
-9. 当天 50 条事项时列表完整且可滚动。
-10. 全程断网照常添加、编辑、勾选和改期。
-
-未来如果重新启用 AI，应作为独立 V2 提案，不能让 V1 代码暗中依赖 AI。
+1. 无 DDL 的事项无论跨过多少天仍显示在长期清单，且不进入 Overdue。
+2. 显式设置的未来 DDL 不显示为逾期；DDL 过去且未完成后显示在 Overdue。
+3. 完成的过期事项显示在 Completed，不显示在 Overdue。
+4. 每日事项今天完成，下一次实例仍未完成。
+5. 每周事项只在选择的星期出现，实例状态独立。
+6. 删除一个重复实例不删除整个系列。
+7. 重启后旧事项、完成状态和 DDL 保留；旧计划日期不再隐藏或逾期事项。
+8. 1000 条单次事项均可查询和滚动。

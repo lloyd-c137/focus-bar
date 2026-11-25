@@ -5,6 +5,8 @@ import SwiftData
   @Attribute(.unique) var id: UUID
   var title: String
   var notes: String
+  // Retained so existing SwiftData stores open without a schema migration.
+  // This legacy value is no longer used as a task date.
   var dayKey: String
   var dueDayKey: String?
   var minuteOfDay: Int?
@@ -17,14 +19,14 @@ import SwiftData
   var deleted: Bool
 
   init(
-    title: String, notes: String = "", day: LocalDay, minuteOfDay: Int? = nil, sortOrder: Int = 0,
+    title: String, notes: String = "", minuteOfDay: Int? = nil, sortOrder: Int = 0,
     frequency: TaskFrequency = .never, weekdays: Set<Int> = [], dueDay: LocalDay? = nil,
     id: UUID = UUID()
   ) {
     self.id = id
     self.title = title
     self.notes = notes
-    self.dayKey = day.key
+    self.dayKey = LocalDay(.now).key
     self.dueDayKey = dueDay?.key
     self.minuteOfDay = minuteOfDay
     self.sortOrder = sortOrder
@@ -35,7 +37,6 @@ import SwiftData
     self.completedAt = nil
     self.deleted = false
   }
-  var day: LocalDay { LocalDay(key: dayKey) }
   var dueDay: LocalDay? { dueDayKey.map(LocalDay.init(key:)) }
   var recurrence: TaskFrequency { TaskFrequency(rawValue: frequency) ?? .never }
   var weekdaySet: Set<Int> { Set(weekdays.split(separator: ",").compactMap { Int($0) }) }
@@ -53,6 +54,7 @@ import SwiftData
   var notesOverride: String?
   var minuteOverride: Int?
   var hasMinuteOverride: Bool
+  // Retained for compatibility with prior stores; date rescheduling is no longer supported.
   var rescheduledDayKey: String?
   var completedAt: Date?
   var dueDay: LocalDay? { dueDayKey.map(LocalDay.init(key:)) }

@@ -1,6 +1,6 @@
 # Focus Bar
 
-A quiet, native macOS menu bar checklist for tasks you enter yourself. Tasks are stored locally with SwiftData. V1 does not use AI, network services, accounts, calendar integrations, or cloud sync.
+A quiet, native macOS menu bar checklist for tasks you enter yourself. Tasks are stored locally with SwiftData. Focus Bar has no planned-date field: tasks stay in the list until you complete or delete them. An optional deadline is the only date that can make an unfinished task overdue.
 
 ## Requirements
 
@@ -30,16 +30,16 @@ swift test
 
 ## Features
 
-- Native menu bar panel that sizes to its content; the list scrolls only past ~70% of the screen height
-- Today, Tomorrow, and arbitrary date navigation: ‹ / › arrows, a Today button, and a calendar popover on the date
-- Create, rename in place, complete/reopen, reschedule, and delete tasks; deletion can be undone
-- Always-visible quick add field defaults to the viewed date; date, time, and repeat are set from small popovers and shown as removable chips
-- Hover and keyboard selection on rows; an ⓘ button opens a details popover (title, notes, date, time, optional deadline) that saves on close
-- Optional local time and notes; stable ordering for anytime items
-- Daily and weekly recurrence with per-day completion and exception records
-- Overdue one-time tasks remain on their original date
-- Today follows local-day changes and refreshes after wake, clock, and time-zone notifications
-- Optional menu bar count (hidden at zero), completed-task visibility, and login item setting
+- Native menu bar panel with a long-term task list and content-sized scrolling
+- Quick add requires only a title; deadline, time, and recurrence are optional
+- Tasks without a deadline stay in the list and never become overdue because of age
+- Overdue contains only unfinished tasks whose explicitly set deadline has passed
+- Time-of-day sorting, anytime tasks, completed-task folding and undoable deletion
+- Daily and weekly recurrence with independent per-occurrence completion
+- Weekly recurrence lets you choose its weekday
+- Per-occurrence deadline for recurring tasks
+- Hover and keyboard selection; an ⓘ button opens details for title, notes, optional deadline and time
+- Optional menu bar count, completed-task visibility, login item setting
 - English and Simplified Chinese UI strings
 
 ### Keyboard
@@ -52,17 +52,16 @@ swift test
 | Return | Rename the selected task |
 | Delete | Delete the selected task (undo from the banner or ⌘Z) |
 | ⌘I | Open details for the selected task |
-| ⌘[ / ⌘] / ⌘T | Previous day / next day / today |
 | ⌘, | Settings |
 
 ## Project layout
 
-- `Sources/FocusBar/Domain.swift`: local-date, navigation, and deterministic list rules
-- `Sources/FocusBar/CalendarState.swift`: system calendar lifecycle notifications and badge refresh
+- `Sources/FocusBar/Domain.swift`: deadline, recurrence and list rules
+- `Sources/FocusBar/CalendarState.swift`: local date lifecycle and badge refresh
 - `Sources/FocusBar/Models.swift`: SwiftData task and recurrence occurrence records
 - `Sources/FocusBar/TaskStore.swift`: local persistence and task commands
-- `Sources/FocusBar/TodayPanel.swift`: menu bar panel, list rows, quick add, details popover, keyboard handling
+- `Sources/FocusBar/TodayPanel.swift`: menu bar panel, list rows, quick add and details
 - `Sources/FocusBar/SettingsView.swift`: local preferences and login item
-- `Tests/FocusBarTests`: date, recurrence, deadline, ordering, and persistence tests (21 tests)
+- `Tests/FocusBarTests`: deadline, recurrence, ordering and persistence tests
 
-Data remains in the app's local SwiftData store. There is no import/export or migration UI in this first implementation.
+Existing SwiftData records keep their old date columns for store compatibility, but those planned dates are ignored by the app. Data remains in the local SwiftData store; there is no import/export or cloud sync.

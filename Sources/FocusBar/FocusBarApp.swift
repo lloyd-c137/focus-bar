@@ -7,17 +7,21 @@ import SwiftUI
   private let container: ModelContainer?
   private let startupError: String?
   @AppStorage("showMenuBarCount") private var showCount = false
+  @State private var backupManager: GitHubBackupManager
   @State private var taskStore: TaskStore?
   @State private var calendarState: CalendarState?
 
   init() {
+    let backupManager = GitHubBackupManager()
+    _backupManager = State(initialValue: backupManager)
     do {
       let modelContainer = try ModelContainer(for: TaskRecord.self, OccurrenceRecord.self)
       container = modelContainer
       startupError = nil
-      let store = TaskStore(context: modelContainer.mainContext)
+      let store = TaskStore(context: modelContainer.mainContext, backup: backupManager)
       _taskStore = State(initialValue: store)
       _calendarState = State(initialValue: CalendarState(taskStore: store))
+      backupManager.scheduleSync()
     } catch {
       container = nil
       startupError = error.localizedDescription
@@ -48,7 +52,7 @@ import SwiftUI
 
     Settings {
       if let container, let taskStore {
-        SettingsView().modelContainer(container).environment(taskStore)
+        SettingsView().modelContainer(container).environment(taskStore).environment(backupManager)
       } else {
         StorageFailureView(message: startupError ?? "").frame(width: 360, height: 220)
       }

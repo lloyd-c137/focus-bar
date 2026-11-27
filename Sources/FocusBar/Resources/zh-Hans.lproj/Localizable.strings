@@ -57,3 +57,17 @@
 "Repeat on" = "重复日期";
 "Weekly on %@" = "每周%@";
 "Changes apply to this occurrence only." = "修改只对本次重复事项生效。";
+"GitHub Backup" = "GitHub 备份";
+"Syncing backup…" = "正在同步备份…";
+"Backup is up to date" = "备份已同步";
+"Backup needs attention" = "备份需要处理";
+"Backup is not configured" = "尚未配置备份";
+"Last synced %@" = "上次同步：%@";
+"Sync now" = "立即同步";
+"Open private backup repository" = "打开私有备份仓库";
+"Backup data is not encrypted." = "备份数据未加密。";
+"Add FOCUS_BAR_GITHUB_TOKEN with fnox, then restart Focus Bar." = "请先用 fnox 添加 FOCUS_BAR_GITHUB_TOKEN，然后重新启动 Focus Bar。";
+"GitHub backup token is missing from Keychain." = "钥匙串中缺少 GitHub 备份凭据。";
+"GitHub returned an invalid response." = "GitHub 返回了无效响应。";
+"GitHub backup failed (HTTP %d)." = "GitHub 备份失败（HTTP %d）。";
+"The local task database could not be found." = "找不到本地事项数据库。";

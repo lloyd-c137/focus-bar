@@ -4,11 +4,13 @@ import SwiftUI
 
 @MainActor @Observable final class TaskStore {
   private let context: ModelContext
+  private let backup: (any TaskBackupSyncing)?
   var error: String?
   private(set) var badgeCount = 0
   private(set) var revision = 0
-  init(context: ModelContext) {
+  init(context: ModelContext, backup: (any TaskBackupSyncing)? = nil) {
     self.context = context
+    self.backup = backup
     refreshBadge()
   }
 
@@ -190,6 +192,7 @@ import SwiftUI
   private func tasksDidChange() {
     revision &+= 1
     refreshBadge()
+    backup?.scheduleSync()
   }
 
   private func task(id: UUID) throws -> TaskRecord? {

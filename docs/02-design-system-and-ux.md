@@ -87,7 +87,7 @@
 
 ## 6. 明确排除
 
-不显示计划日期、日期导航、按日归档、改期入口、AI、Start Focus、计时器、桌宠、统计面板、GitHub/Calendar 集成。
+不显示计划日期、日期导航、按日归档、改期入口、AI、Start Focus、计时器、桌宠、统计面板、GitHub 任务集成或 Calendar 集成。备份状态只在 Settings 中展示。
 
 ## 7. QA 截图集
 

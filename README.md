@@ -60,8 +60,17 @@ swift test
 - `Sources/FocusBar/CalendarState.swift`: local date lifecycle and badge refresh
 - `Sources/FocusBar/Models.swift`: SwiftData task and recurrence occurrence records
 - `Sources/FocusBar/TaskStore.swift`: local persistence and task commands
+- `Sources/FocusBar/GitHubBackup.swift`: secure credential lookup, consistent SQLite snapshots and GitHub upload/retry queue
 - `Sources/FocusBar/TodayPanel.swift`: menu bar panel, list rows, quick add and details
 - `Sources/FocusBar/SettingsView.swift`: local preferences and login item
 - `Tests/FocusBarTests`: deadline, recurrence, ordering and persistence tests
 
-Existing SwiftData records keep their old date columns for store compatibility, but those planned dates are ignored by the app. Data remains in the local SwiftData store; there is no import/export or cloud sync.
+Existing SwiftData records keep their old date columns for store compatibility, but those planned dates are ignored by the app.
+
+## GitHub backup
+
+After a successful task change (add, edit, complete/reopen, delete, undo, or recurrence edit), Focus Bar creates a consistent SQLite snapshot and updates `FocusBar.sqlite` in the private [`focus-bar-data-backup`](https://github.com/lloyd-c137/focus-bar-data-backup) repository. It also syncs once when the app starts and retries when network connectivity returns. Failed uploads stay pending and are shown in Settings; use **Sync now** to retry manually.
+
+Backups are **not encrypted**. Anyone with access to the private repository can read task titles, notes, deadlines and completion data. The GitHub token is stored in macOS Keychain and is limited to Contents read/write access to this backup repository. To configure it, create a fine-grained token scoped only to that repository, then run `fnox set FOCUS_BAR_GITHUB_TOKEN` in Terminal and restart Focus Bar. Do not commit or share the token.
+
+The repository stores the latest database snapshot; each successful GitHub update also creates a Git commit, so previous snapshots remain available in repository history. Restore instructions are in the backup repository README. GitHub sync needs an internet connection; local task changes remain available offline.

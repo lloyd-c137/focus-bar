@@ -1,6 +1,6 @@
 # 07 · 交付与验收标准
 
-状态：计划日期机制已移除。新规则以 ADR-010 为准。
+状态：计划日期机制已移除；GitHub 自动备份按 ADR-011 实施中。
 
 ## 产品验收
 
@@ -13,6 +13,9 @@
 - Daily/Weekly recurrence 正确生成实例，完成状态相互独立。
 - 旧 SwiftData 事项和完成状态保留，旧计划日期不再影响展示。
 - 右键菜单不再提供 Move to Today/Tomorrow、Change Date。
+- 任务写入成功后本地保存不等待网络；随后生成一致 SQLite 快照并上传到私有备份仓库。
+- 上传失败显示可读状态且不回滚数据；网络恢复、重新启动或手动重试会继续同步。
+- GitHub 凭据仅存 macOS Keychain；同步内容未加密。
 
 ## 必测矩阵
 
@@ -23,10 +26,11 @@
 | 重复 | 每日、每周星期选择、实例完成/撤销、单次删除、系列删除 |
 | 排序 | Overdue 按 DDL、有时间按时刻、Anytime 稳定顺序、Completed 折叠 |
 | 持久化 | 旧数据库字段可读，重启后标题/完成/DDL 保持 |
+| GitHub backup | 快照一致性、首次上传、文件更新、失败重试、权限错误提示、断网后重试 |
 | 性能 | 1000 条任务查询和展示 |
 | UI | 空、普通、逾期、重复、Light/Dark、VoiceOver、IME、Reduce Motion |
 
-## 本轮验证记录（2026-11-25）
+## 计划日期移除验证记录（2026-11-25）
 
 - `swift format lint --strict --recursive Sources Tests` — PASS
 - `swift test` — PASS（14 项）
@@ -35,6 +39,12 @@
 - `plutil -lint ".FocusBarBuild/Focus Bar.app/Contents/Info.plist"` — PASS
 - `git diff --check` — PASS
 - 菜单栏真实交互、截图、VoiceOver 和中文输入法图形验收：尚未验证
+
+## GitHub 自动备份实现状态（2026-11-28）
+
+- SQLite 在线快照一致性单元测试：PASS。
+- GitHub token：fnox 凭据尚待用户录入，然后安全写入 macOS Keychain。
+- 远程同步路径与首次启动同步：凭据配置后实际验证。
 
 ## 发布门槛
 

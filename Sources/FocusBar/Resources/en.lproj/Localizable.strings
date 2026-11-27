@@ -57,3 +57,17 @@
 "Repeat on" = "Repeat on";
 "Weekly on %@" = "Weekly on %@";
 "Changes apply to this occurrence only." = "Changes apply to this occurrence only.";
+"GitHub Backup" = "GitHub Backup";
+"Syncing backup…" = "Syncing backup…";
+"Backup is up to date" = "Backup is up to date";
+"Backup needs attention" = "Backup needs attention";
+"Backup is not configured" = "Backup is not configured";
+"Last synced %@" = "Last synced %@";
+"Sync now" = "Sync now";
+"Open private backup repository" = "Open private backup repository";
+"Backup data is not encrypted." = "Backup data is not encrypted.";
+"Add FOCUS_BAR_GITHUB_TOKEN with fnox, then restart Focus Bar." = "Add FOCUS_BAR_GITHUB_TOKEN with fnox, then restart Focus Bar.";
+"GitHub backup token is missing from Keychain." = "GitHub backup token is missing from Keychain.";
+"GitHub returned an invalid response." = "GitHub returned an invalid response.";
+"GitHub backup failed (HTTP %d)." = "GitHub backup failed (HTTP %d).";
+"The local task database could not be found." = "The local task database could not be found.";

@@ -1,3 +1,4 @@
+import SQLite3
 import SwiftData
 import XCTest
 
@@ -54,6 +55,11 @@ final class DomainTests: XCTestCase {
 }
 
 @MainActor final class TaskStoreTests: XCTestCase {
+  private final class BackupSpy: TaskBackupSyncing {
+    var scheduledCount = 0
+    func scheduleSync() { scheduledCount += 1 }
+  }
+
   private struct Fixture {
     let container: ModelContainer
     let store: TaskStore
@@ -110,6 +116,26 @@ final class DomainTests: XCTestCase {
 
     XCTAssertTrue(store.save(TaskDraft(title: item.title), editing: item))
     XCTAssertNil(store.tasks(today: LocalDay(.now)).first?.dueDay)
+  }
+
+  func testSuccessfulTaskChangesScheduleGitHubBackup() throws {
+    let fixture = try makeStore()
+    let backup = BackupSpy()
+    let store = TaskStore(context: fixture.container.mainContext, backup: backup)
+    XCTAssertTrue(store.save(TaskDraft(title: "Sync me")))
+    var task = try XCTUnwrap(store.tasks(today: LocalDay(.now)).first)
+    XCTAssertEqual(backup.scheduledCount, 1)
+
+    XCTAssertTrue(store.save(TaskDraft(title: "Updated"), editing: task))
+    task = try XCTUnwrap(store.tasks(today: LocalDay(.now)).first)
+    XCTAssertEqual(backup.scheduledCount, 2)
+
+    store.toggle(task)
+    XCTAssertEqual(backup.scheduledCount, 3)
+    store.delete(task)
+    XCTAssertEqual(backup.scheduledCount, 4)
+    store.restore(task, series: false)
+    XCTAssertEqual(backup.scheduledCount, 5)
   }
 
   func testDailyOccurrenceCompletionIsIndependentByDate() throws {
@@ -226,5 +252,43 @@ final class DomainTests: XCTestCase {
       XCTAssertTrue(records.first?.completed == true)
       XCTAssertEqual(records.first?.dueDay, today.addingDays(7))
     }
+  }
+
+  func testSQLiteSnapshotIsConsistentWhileStoreIsOpen() throws {
+    let schema = Schema([TaskRecord.self, OccurrenceRecord.self])
+    let source = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      .appendingPathExtension("sqlite")
+    defer {
+      try? FileManager.default.removeItem(at: source)
+      try? FileManager.default.removeItem(atPath: source.path + "-shm")
+      try? FileManager.default.removeItem(atPath: source.path + "-wal")
+    }
+    let configuration = ModelConfiguration(schema: schema, url: source, cloudKitDatabase: .none)
+    let container = try ModelContainer(for: schema, configurations: [configuration])
+    let store = TaskStore(context: container.mainContext)
+    XCTAssertTrue(store.save(TaskDraft(title: "Snapshot test", notes: "Keeps local text")))
+
+    let snapshot = try SQLiteSnapshot.make(from: source)
+    defer { try? FileManager.default.removeItem(at: snapshot) }
+    var database: OpaquePointer?
+    let openResult = sqlite3_open_v2(snapshot.path, &database, SQLITE_OPEN_READONLY, nil)
+    guard openResult == SQLITE_OK, let database else {
+      XCTFail("Snapshot open failed with SQLite code \(openResult)")
+      return
+    }
+    defer { sqlite3_close(database) }
+    var statement: OpaquePointer?
+    let prepareResult = sqlite3_prepare_v2(database, "PRAGMA integrity_check", -1, &statement, nil)
+    guard prepareResult == SQLITE_OK, let statement else {
+      XCTFail("Snapshot query failed: \(String(cString: sqlite3_errmsg(database)))")
+      return
+    }
+    defer { sqlite3_finalize(statement) }
+    XCTAssertEqual(sqlite3_step(statement), SQLITE_ROW)
+    guard let result = sqlite3_column_text(statement, 0) else {
+      XCTFail("Snapshot integrity result was empty")
+      return
+    }
+    XCTAssertEqual(String(cString: result), "ok")
   }
 }

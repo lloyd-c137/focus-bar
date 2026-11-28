@@ -8,6 +8,7 @@ import SwiftUI
   var error: String?
   private(set) var badgeCount = 0
   private(set) var revision = 0
+  private(set) var lastCreatedTaskID: String?
   init(context: ModelContext, backup: (any TaskBackupSyncing)? = nil) {
     self.context = context
     self.backup = backup
@@ -95,14 +96,17 @@ import SwiftUI
               ? [Calendar.current.component(.weekday, from: .now)] : draft.weekdays) : [],
           dueDay: draft.frequency == .never ? draft.dueDay : nil)
         context.insert(newTask)
+        let today = LocalDay(.now)
         if draft.frequency != .never, let dueDay = draft.dueDay {
           let occurrenceDay = nextOccurrenceDay(
-            frequency: draft.frequency, from: LocalDay(.now), weekdays: newTask.weekdaySet)
+            frequency: draft.frequency, from: today, weekdays: newTask.weekdaySet)
           let occurrence = OccurrenceRecord(seriesID: newTask.id, day: occurrenceDay)
           occurrence.dueDayKey = dueDay.key
           occurrence.hasDueDayOverride = true
           context.insert(occurrence)
         }
+        lastCreatedTaskID =
+          draft.frequency == .never ? newTask.id.uuidString : "\(newTask.id.uuidString)-\(today.key)"
       }
       try context.save()
       error = nil

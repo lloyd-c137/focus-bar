@@ -2,11 +2,16 @@ import ServiceManagement
 import SwiftUI
 
 struct SettingsView: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(GitHubBackupManager.self) private var backup
   @AppStorage("showMenuBarCount") private var showCount = false
   @AppStorage("showCompleted") private var showCompleted = true
   @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
   @State private var loginError: String?
+
+  private var smoothMotion: Animation? {
+    reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.85)
+  }
 
   var body: some View {
     Form {
@@ -22,6 +27,7 @@ struct SettingsView: View {
               SMAppService.openSystemSettingsLoginItems()
             }
           }
+          .transition(.opacity.combined(with: .move(edge: .top)))
         }
       }
       Section(String(localized: "Menu Bar")) {
@@ -30,21 +36,34 @@ struct SettingsView: View {
       }
       Section(String(localized: "GitHub Backup")) {
         HStack {
-          Label(
-            !backup.isConfigured
-              ? String(localized: "Backup is not configured")
-              : (backup.isSyncing
-                ? String(localized: "Syncing backup…")
-                : (backup.lastError == nil && backup.lastSyncedAt != nil
-                  ? String(localized: "Backup is up to date")
-                  : String(localized: "Backup needs attention"))),
-            systemImage: backup.isConfigured && backup.lastError == nil
-              && backup.lastSyncedAt != nil
-              ? "checkmark.icloud" : "exclamationmark.icloud"
-          )
+          Label {
+            Text(
+              !backup.isConfigured
+                ? String(localized: "Backup is not configured")
+                : (backup.isSyncing
+                  ? String(localized: "Syncing backup…")
+                  : (backup.lastError == nil && backup.lastSyncedAt != nil
+                    ? String(localized: "Backup is up to date")
+                    : String(localized: "Backup needs attention")))
+            )
+            .contentTransition(.opacity)
+          } icon: {
+            Image(
+              systemName: backup.isConfigured && backup.lastError == nil
+                && backup.lastSyncedAt != nil
+                ? "checkmark.icloud" : "exclamationmark.icloud"
+            )
+            .contentTransition(.symbolEffect(.replace))
+          }
           Spacer()
-          if backup.isSyncing { ProgressView().controlSize(.small) }
+          if backup.isSyncing {
+            ProgressView()
+              .controlSize(.small)
+              .transition(.opacity.combined(with: .scale(scale: 0.8)))
+          }
         }
+        .animation(smoothMotion, value: backup.isSyncing)
+        .animation(smoothMotion, value: backup.lastError)
         if let lastSyncedAt = backup.lastSyncedAt {
           Text(
             String(
@@ -53,9 +72,13 @@ struct SettingsView: View {
             )
           )
           .font(.caption).foregroundStyle(.secondary)
+          .transition(.opacity)
         }
         if let lastError = backup.lastError {
-          Text(lastError).font(.caption).foregroundStyle(.red)
+          Text(lastError)
+            .font(.caption)
+            .foregroundStyle(.red)
+            .transition(.opacity.combined(with: .move(edge: .top)))
         } else if !backup.isConfigured {
           Text(String(localized: "Add FOCUS_BAR_GITHUB_TOKEN with fnox, then restart Focus Bar."))
             .font(.caption).foregroundStyle(.secondary)
@@ -73,6 +96,7 @@ struct SettingsView: View {
     }
     .formStyle(.grouped)
     .frame(width: 420, height: loginError == nil ? 400 : 460)
+    .animation(smoothMotion, value: loginError == nil)
     .navigationTitle(String(localized: "Focus Bar Settings"))
   }
 

@@ -56,9 +56,9 @@ struct TodayPanel: View {
   @State private var contentHeight: CGFloat = 0
   @State private var maxListHeight: CGFloat = 480
   @State private var toast: PanelToast?
-
-  @State private var moreHovering = false
-  @State private var repeatHovering = false
+  @State private var cachedTasks: [VisibleTask] = []
+  @State private var loadedRevision = -1
+  @State private var loadedDay: LocalDay?
 
   private var today: LocalDay { calendarState.dateContext.today }
   private var microMotion: Animation? { FocusMotion.micro(reduceMotion) }
@@ -82,12 +82,8 @@ struct TodayPanel: View {
             .onGeometryChange(for: CGFloat.self) {
               $0.size.height
             } action: { newHeight in
-              if contentHeight == 0 {
+              if abs(contentHeight - newHeight) > 0.5 {
                 contentHeight = newHeight
-              } else {
-                withAnimation(smoothMotion) {
-                  contentHeight = newHeight
-                }
               }
             }
         }
@@ -110,8 +106,15 @@ struct TodayPanel: View {
     .background { shortcuts }
     .onAppear {
       calendarState.refresh()
+      reloadTasks()
       let screen = NSScreen.main ?? NSScreen.screens.first
       maxListHeight = max(200, (screen?.visibleFrame.height ?? 800) * 0.7 - 120)
+    }
+    .onChange(of: store.revision) { _, _ in
+      reloadTasks()
+    }
+    .onChange(of: today) { _, _ in
+      reloadTasks()
     }
     .onChange(of: store.error) { _, message in
       guard let message else { return }
@@ -148,29 +151,11 @@ struct TodayPanel: View {
           .transition(.opacity.combined(with: .scale(scale: 0.85)))
       }
       Spacer()
-      Menu {
-        Toggle(String(localized: "Show completed tasks"), isOn: $showCompleted)
-        Divider()
-        Button(String(localized: "Settings…"), action: showSettings)
-          .keyboardShortcut(",")
-        Button(String(localized: "Quit Focus Bar")) { NSApp.terminate(nil) }
-          .keyboardShortcut("q")
-      } label: {
-        Image(systemName: "ellipsis.circle")
-          .font(.system(size: 14))
-          .foregroundStyle(moreHovering ? .primary : .secondary)
-          .frame(width: 22, height: 22)
-          .background(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-              .fill(Color.primary.opacity(moreHovering ? 0.08 : 0))
-          )
-      }
-      .menuStyle(.borderlessButton)
-      .menuIndicator(.hidden)
-      .fixedSize()
-      .onHover { moreHovering = $0 }
-      .animation(microMotion, value: moreHovering)
-      .help(String(localized: "More"))
+      MoreMenuButton(
+        showCompleted: $showCompleted,
+        reduceMotion: reduceMotion,
+        onSettings: showSettings
+      )
     }
     .animation(snappyMotion, value: openCount)
     .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 6)
@@ -178,8 +163,21 @@ struct TodayPanel: View {
 
   // MARK: List
 
+  private func reloadTasks() {
+    let rev = store.revision
+    let day = today
+    guard loadedRevision != rev || loadedDay != day else { return }
+    cachedTasks = store.tasks(today: day)
+    loadedRevision = rev
+    loadedDay = day
+  }
+
   private var visibleSections: TaskSections {
-    let tasks = store.tasks(today: today).map {
+    let source =
+      (loadedRevision == store.revision && loadedDay == today)
+      ? cachedTasks
+      : store.tasks(today: today)
+    let tasks = source.map {
       $0.completed && lingering.contains($0.id) ? $0.reopenedCopy : $0
     }
     return taskSections(tasks: tasks)
@@ -190,17 +188,9 @@ struct TodayPanel: View {
       + (showCompleted && completedExpanded ? s.completed : [])
   }
 
-  private func listFingerprint(_ s: TaskSections) -> [String] {
-    s.overdue.map { "o:\($0.id)" }
-      + s.scheduled.map { "s:\($0.id)" }
-      + s.anytime.map { "a:\($0.id)" }
-      + (showCompleted ? s.completed.map { "c:\($0.id)" } : [])
-  }
-
   private func list(_ s: TaskSections) -> some View {
     let openGroups = [s.overdue, s.scheduled, s.anytime].filter { !$0.isEmpty }.count
     let showHeaders = openGroups > 1
-    let fingerprint = listFingerprint(s)
 
     return VStack(alignment: .leading, spacing: 8) {
       if !s.hasOpen {
@@ -220,9 +210,6 @@ struct TodayPanel: View {
     }
     .padding(.horizontal, 6).padding(.vertical, 4)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .animation(smoothMotion, value: fingerprint)
-    .animation(smoothMotion, value: completedExpanded)
-    .animation(smoothMotion, value: showCompleted)
     .focusable()
     .focusEffectDisabled()
     .focused($listFocused)
@@ -621,54 +608,11 @@ struct TodayPanel: View {
           }
         }
 
-        Menu {
-          Picker(
-            String(localized: "Repeat"),
-            selection: Binding(
-              get: { draft.frequency },
-              set: { newValue in withAnimation(snappyMotion) { draft.frequency = newValue } })
-          ) {
-            ForEach(TaskFrequency.allCases) { Text($0.label).tag($0) }
-          }
-          .pickerStyle(.inline)
-          .labelsHidden()
-          if draft.frequency == .weekly {
-            Picker(
-              String(localized: "Repeat on"),
-              selection: Binding(
-                get: {
-                  draft.weekdays.first ?? Calendar.current.component(.weekday, from: .now)
-                },
-                set: { newDay in withAnimation(snappyMotion) { draft.weekdays = [newDay] } })
-            ) {
-              ForEach(1...7, id: \.self) { weekday in
-                Text(Calendar.current.weekdaySymbols[weekday - 1]).tag(weekday)
-              }
-            }
-            .pickerStyle(.inline)
-          }
-        } label: {
-          Image(systemName: "repeat")
-            .font(.system(size: 13))
-            .frame(width: 18, height: 20)
-            .padding(.horizontal, 5).padding(.vertical, 2)
-            .foregroundStyle(
-              draft.frequency == .never
-                ? AnyShapeStyle(HierarchicalShapeStyle.secondary)
-                : AnyShapeStyle(TintShapeStyle())
-            )
-            .background(
-              RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(Color.primary.opacity(repeatHovering ? 0.07 : 0))
-            )
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .onHover { repeatHovering = $0 }
-        .animation(microMotion, value: repeatHovering)
-        .help(String(localized: "Repeat"))
-        .accessibilityLabel(String(localized: "Repeat"))
+        RepeatMenuButton(
+          frequency: $draft.frequency,
+          weekdays: $draft.weekdays,
+          reduceMotion: reduceMotion
+        )
       }
       .padding(.horizontal, 8)
       .padding(.vertical, 5)
@@ -921,29 +865,30 @@ private struct TaskRowView: View {
 
       Spacer(minLength: 6)
 
-      HStack(spacing: 4) {
+      ZStack(alignment: .trailing) {
         if let minute = item.minuteOfDay, !item.overdue {
           Text(formatMinuteOfDay(minute))
             .font(.callout).monospacedDigit()
             .foregroundStyle(isChecked ? .tertiary : .secondary)
+            .opacity(infoVisible ? 0 : 1)
         }
-        if infoVisible {
-          Button {
-            showsInspector = true
-          } label: {
-            Image(systemName: "info.circle")
-              .font(.system(size: 13))
-          }
-          .buttonStyle(HoverButtonStyle(reduceMotion: reduceMotion))
-          .help(String(localized: "Edit Details…"))
-          .accessibilityLabel(String(localized: "Edit Details…"))
-          .transition(.opacity.combined(with: .scale(scale: 0.85)))
+        Button {
+          showsInspector = true
+        } label: {
+          Image(systemName: "info.circle")
+            .font(.system(size: 13))
+        }
+        .buttonStyle(HoverButtonStyle(reduceMotion: reduceMotion))
+        .opacity(infoVisible ? 1 : 0)
+        .scaleEffect(infoVisible ? 1 : 0.88)
+        .allowsHitTesting(infoVisible)
+        .help(String(localized: "Edit Details…"))
+        .accessibilityLabel(String(localized: "Edit Details…"))
+        .popover(isPresented: $showsInspector, arrowEdge: .trailing) {
+          TaskInspector(item: item, reduceMotion: reduceMotion, onSave: onSaveDetails)
         }
       }
       .padding(.top, 1)
-      .popover(isPresented: $showsInspector, arrowEdge: .trailing) {
-        TaskInspector(item: item, reduceMotion: reduceMotion, onSave: onSaveDetails)
-      }
       .animation(microMotion, value: infoVisible)
     }
     .padding(.leading, item.overdue && !isChecked ? 9 : 6)
@@ -952,6 +897,7 @@ private struct TaskRowView: View {
     .background(
       RoundedRectangle(cornerRadius: 6, style: .continuous)
         .fill(background)
+        .animation(microMotion, value: background)
     )
     .overlay(alignment: .leading) {
       if item.overdue && !isChecked {
@@ -960,7 +906,6 @@ private struct TaskRowView: View {
           .frame(width: 2.5)
           .padding(.vertical, 5)
           .padding(.leading, 2.5)
-          .transition(.opacity)
       }
     }
     .overlay(
@@ -969,12 +914,8 @@ private struct TaskRowView: View {
           isEditing ? Color.accentColor.opacity(0.55) : Color.clear,
           lineWidth: 1
         )
+        .animation(microMotion, value: isEditing)
     )
-    .animation(microMotion, value: hovering)
-    .animation(microMotion, value: isSelected)
-    .animation(microMotion, value: isEditing)
-    .animation(snappyMotion, value: isHighlighted)
-    .animation(snappyMotion, value: isChecked)
     .contentShape(Rectangle())
     .onHover { hovering = $0 }
     .modifier(RowTapModifier(enabled: !isEditing, single: onSelect, double: onBeginEdit))
@@ -1275,6 +1216,99 @@ private struct TaskInspector: View {
 }
 
 // MARK: - Small controls
+
+private struct MoreMenuButton: View {
+  @Binding var showCompleted: Bool
+  let reduceMotion: Bool
+  let onSettings: () -> Void
+  @State private var hovering = false
+
+  var body: some View {
+    Menu {
+      Toggle(String(localized: "Show completed tasks"), isOn: $showCompleted)
+      Divider()
+      Button(String(localized: "Settings…"), action: onSettings)
+        .keyboardShortcut(",")
+      Button(String(localized: "Quit Focus Bar")) { NSApp.terminate(nil) }
+        .keyboardShortcut("q")
+    } label: {
+      Image(systemName: "ellipsis.circle")
+        .font(.system(size: 14))
+        .foregroundStyle(hovering ? .primary : .secondary)
+        .frame(width: 22, height: 22)
+        .background(
+          RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .fill(Color.primary.opacity(hovering ? 0.08 : 0))
+        )
+    }
+    .menuStyle(.borderlessButton)
+    .menuIndicator(.hidden)
+    .fixedSize()
+    .onHover { hovering = $0 }
+    .animation(FocusMotion.micro(reduceMotion), value: hovering)
+    .help(String(localized: "More"))
+  }
+}
+
+private struct RepeatMenuButton: View {
+  @Binding var frequency: TaskFrequency
+  @Binding var weekdays: Set<Int>
+  let reduceMotion: Bool
+  @State private var hovering = false
+
+  private var snappyMotion: Animation? { FocusMotion.snappy(reduceMotion) }
+
+  var body: some View {
+    Menu {
+      Picker(
+        String(localized: "Repeat"),
+        selection: Binding(
+          get: { frequency },
+          set: { newValue in withAnimation(snappyMotion) { frequency = newValue } })
+      ) {
+        ForEach(TaskFrequency.allCases) { Text($0.label).tag($0) }
+      }
+      .pickerStyle(.inline)
+      .labelsHidden()
+      if frequency == .weekly {
+        Picker(
+          String(localized: "Repeat on"),
+          selection: Binding(
+            get: {
+              weekdays.first ?? Calendar.current.component(.weekday, from: .now)
+            },
+            set: { newDay in withAnimation(snappyMotion) { weekdays = [newDay] } })
+        ) {
+          ForEach(1...7, id: \.self) { weekday in
+            Text(Calendar.current.weekdaySymbols[weekday - 1]).tag(weekday)
+          }
+        }
+        .pickerStyle(.inline)
+      }
+    } label: {
+      Image(systemName: "repeat")
+        .font(.system(size: 13))
+        .frame(width: 18, height: 20)
+        .padding(.horizontal, 5).padding(.vertical, 2)
+        .foregroundStyle(
+          frequency == .never
+            ? AnyShapeStyle(HierarchicalShapeStyle.secondary)
+            : AnyShapeStyle(TintShapeStyle())
+        )
+        .background(
+          RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .fill(Color.primary.opacity(hovering ? 0.07 : 0))
+        )
+    }
+    .menuStyle(.borderlessButton)
+    .menuIndicator(.hidden)
+    .fixedSize()
+    .onHover { hovering = $0 }
+    .animation(FocusMotion.micro(reduceMotion), value: hovering)
+    .help(String(localized: "Repeat"))
+    .accessibilityLabel(String(localized: "Repeat"))
+  }
+}
 
 private struct TactilePlainButtonStyle: ButtonStyle {
   var pressedScale: CGFloat = 0.9

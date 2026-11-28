@@ -98,12 +98,32 @@ func taskSections(tasks: [VisibleTask]) -> TaskSections {
     overdue: overdue, scheduled: scheduled, anytime: anytime, completed: completed)
 }
 
+private final class MinuteFormatterCache: @unchecked Sendable {
+  static let shared = MinuteFormatterCache()
+  private let lock = NSLock()
+  private var formatters: [String: DateFormatter] = [:]
+
+  func string(for minute: Int, locale: Locale) -> String {
+    lock.lock()
+    defer { lock.unlock() }
+    let key = locale.identifier
+    let formatter: DateFormatter
+    if let existing = formatters[key] {
+      formatter = existing
+    } else {
+      let created = DateFormatter()
+      created.locale = locale
+      created.timeZone = TimeZone(secondsFromGMT: 0)
+      created.setLocalizedDateFormatFromTemplate("jmm")
+      formatters[key] = created
+      formatter = created
+    }
+    return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(minute * 60)))
+  }
+}
+
 func formatMinuteOfDay(_ minute: Int, locale: Locale = .current) -> String {
-  let formatter = DateFormatter()
-  formatter.locale = locale
-  formatter.timeZone = TimeZone(secondsFromGMT: 0)
-  formatter.setLocalizedDateFormatFromTemplate("jmm")
-  return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(minute * 60)))
+  MinuteFormatterCache.shared.string(for: minute, locale: locale)
 }
 
 func recurrenceMatches(frequency: TaskFrequency, date: LocalDay, weekdays: Set<Int>) -> Bool {
